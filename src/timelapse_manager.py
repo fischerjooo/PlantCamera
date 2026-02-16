@@ -46,6 +46,7 @@ class TimeLapseManager:
 
         self._lock = threading.Lock()
         self._camera_lock = threading.Lock()
+        self._encode_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._capture_status = CaptureStatus()
         self._capture_thread: Optional[threading.Thread] = None
@@ -165,50 +166,58 @@ class TimeLapseManager:
 
             self._stop_event.wait(5)
 
-    def _encode_session(self) -> None:
-        frames = sorted(self.frames_dir.glob(f"{FRAME_PREFIX}*.jpg"))
-        if not frames:
-            return
+    def _encode_session(self) -> tuple[bool, str]:
+        with self._encode_lock:
+            frames = sorted(self.frames_dir.glob(f"{FRAME_PREFIX}*.jpg"))
+            if not frames:
+                return False, "No collected images available for conversion."
 
-        session_end = datetime.now()
-        output_name = (
-            f"{VIDEO_PREFIX}{self.session_start.strftime(TIMESTAMP_FORMAT)}_"
-            f"{session_end.strftime(TIMESTAMP_FORMAT)}.mp4"
-        )
-        output_path = self.videos_dir / output_name
+            session_end = datetime.now()
+            output_name = (
+                f"{VIDEO_PREFIX}{self.session_start.strftime(TIMESTAMP_FORMAT)}_"
+                f"{session_end.strftime(TIMESTAMP_FORMAT)}.mp4"
+            )
+            output_path = self.videos_dir / output_name
 
-        ffmpeg_cmd = [
-            "ffmpeg",
-            "-y",
-            "-framerate",
-            str(self.output_fps),
-            "-pattern_type",
-            "glob",
-            "-i",
-            str(self.frames_dir / f"{FRAME_PREFIX}*.jpg"),
-            "-c:v",
-            self.video_codec,
-            "-pix_fmt",
-            "yuv420p",
-            str(output_path),
-        ]
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-y",
+                "-framerate",
+                str(self.output_fps),
+                "-pattern_type",
+                "glob",
+                "-i",
+                str(self.frames_dir / f"{FRAME_PREFIX}*.jpg"),
+                "-c:v",
+                self.video_codec,
+                "-pix_fmt",
+                "yuv420p",
+                str(output_path),
+            ]
 
-        try:
-            subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
-        except (FileNotFoundError, subprocess.CalledProcessError) as error:
-            message = str(error)
-            if isinstance(error, subprocess.CalledProcessError) and error.stderr:
-                message = error.stderr.strip()
+            try:
+                subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
+            except (FileNotFoundError, subprocess.CalledProcessError) as error:
+                message = str(error)
+                if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+                    message = error.stderr.strip()
+                with self._lock:
+                    self._capture_status.last_encode_error = message
+                return False, message
+
+            for frame in frames:
+                frame.unlink(missing_ok=True)
+
             with self._lock:
-                self._capture_status.last_encode_error = message
-            return
+                self._capture_status.last_encode_error = None
+            self.session_start = session_end
+            return True, f"Converted {len(frames)} images into {output_name}."
 
-        for frame in frames:
-            frame.unlink(missing_ok=True)
-
-        with self._lock:
-            self._capture_status.last_encode_error = None
-        self.session_start = session_end
+    def trigger_convert_now(self) -> tuple[bool, str]:
+        success, message = self._encode_session()
+        if success:
+            self.next_capture_due = datetime.now() + self.capture_interval
+        return success, message
 
     def get_status(self) -> dict[str, str | int | float | None]:
         with self._lock:

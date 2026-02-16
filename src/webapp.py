@@ -115,6 +115,9 @@ def _html_page(
 
     <section>
       <h2>Video Management</h2>
+      <form method="post" action="/convert-now">
+        <button type="submit">Convert</button>
+      </form>
       {videos_section}
     </section>
 
@@ -264,6 +267,15 @@ def run_web_server(
 
             if clean_path == "/capture-now":
                 ok, message = timelapse_manager.trigger_capture_now()
+                status_prefix = "OK" if ok else "ERROR"
+                encoded_notice = quote(f"{status_prefix}: {message}")
+                self.send_response(HTTPStatus.SEE_OTHER)
+                self.send_header("Location", f"/?notice={encoded_notice}")
+                self.end_headers()
+                return
+
+            if clean_path == "/convert-now":
+                ok, message = timelapse_manager.trigger_convert_now()
                 status_prefix = "OK" if ok else "ERROR"
                 encoded_notice = quote(f"{status_prefix}: {message}")
                 self.send_response(HTTPStatus.SEE_OTHER)

@@ -44,7 +44,8 @@ All runtime parameters are hardcoded at the top of `main.py`:
   - last capture timestamp and errors,
   - timelapse progress and image counters,
   - video management (watch, download, delete),
-  - manual timelapse photo trigger button (`Take timelapse photo now`).
+  - manual timelapse photo trigger button (`Take timelapse photo now`),
+  - manual conversion button (`Convert`) to encode all currently collected images immediately and reset/start a new timelapse session.
 - Media endpoints:
   - `/live.jpg`
   - `/videos/<file>.mp4`
