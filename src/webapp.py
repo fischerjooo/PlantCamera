@@ -5,6 +5,7 @@ import os
 import sys
 import threading
 import time
+from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -16,6 +17,7 @@ from src.timelapse_manager import TimeLapseManager
 
 LIVE_VIEW_FILENAME = "live.jpg"
 DASHBOARD_REFRESH_SECONDS = 5
+MAX_LOG_MESSAGES = 100
 
 
 def _restart_process() -> None:
@@ -28,6 +30,7 @@ def _html_page(
     repo_commit_text: str,
     timelapse_status: dict[str, str | int | float | None],
     videos: list[str],
+    logs: list[str],
     notice: str | None = None,
 ) -> bytes:
     safe_notice = f"<p class='notice'>{html.escape(notice)}</p>" if notice else ""
@@ -56,6 +59,8 @@ def _html_page(
         else "<p class='meta'>No videos generated yet.</p>"
     )
 
+    log_lines = "\n".join(html.escape(line) for line in logs)
+
     html_text = f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -70,6 +75,7 @@ def _html_page(
     .meta {{ margin: 5px 0; color: #374151; }}
     .error {{ color: #b91c1c; font-weight: 700; }}
     .ok {{ color: #166534; font-weight: 700; }}
+    .logs {{ background: #0f172a; color: #e2e8f0; padding: 10px; border-radius: 8px; max-height: 250px; overflow: auto; white-space: pre-wrap; font-size: 13px; }}
     img {{ width: 100%; max-width: 960px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; display: block; margin: 0 auto; transform: rotate(-90deg); transform-origin: center; }}
     .toolbar {{ display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }}
     button {{ border: none; padding: 8px 14px; border-radius: 6px; background: #22c55e; color: #06240f; font-weight: 700; cursor: pointer; }}
@@ -90,7 +96,7 @@ def _html_page(
       <h2>Live View</h2>
       <img id=\"liveView\" src=\"/{LIVE_VIEW_FILENAME}?t={int(time.time())}\" alt=\"Live camera preview\" />
       {f"<p class='meta error'>Live view error: {html.escape(str(timelapse_status['last_live_view_error']))}</p>" if timelapse_status['last_live_view_error'] else ""}
-      <p class=\"meta\">Live view image path: {html.escape(str(timelapse_status['live_view_dir']))}/{LIVE_VIEW_FILENAME}</p>
+      <p class=\"meta\">Live view path: DCIM/PlantCamera/live_view.jpg</p>
       <p class=\"meta\">Last successful timelapse capture: <span class=\"ok\">{html.escape(str(timelapse_status['last_capture_timestamp']))}</span></p>
       {f"<p class='meta error'>Last timelapse capture error: {html.escape(str(timelapse_status['last_capture_error']))}</p>" if timelapse_status['last_capture_error'] else ""}
       {f"<p class='meta error'>Last encode error: {html.escape(str(timelapse_status['last_encode_error']))}</p>" if timelapse_status['last_encode_error'] else ""}
@@ -98,16 +104,9 @@ def _html_page(
 
     <section>
       <h2>Time lapse Management</h2>
-      <p class=\"meta\">Session range: {html.escape(str(timelapse_status['session_start']))} → {html.escape(str(timelapse_status['session_end']))}</p>
-      <p class=\"meta\">Progress: {timelapse_status['session_progress_percent']}%</p>
-      <p class=\"meta\">Collected images: {timelapse_status['collected_images']}</p>
-      <p class=\"meta\">Configured image count: {timelapse_status['configured_image_count']}</p>
+      <p class=\"meta\">Images captured: {timelapse_status['collected_images']}</p>
       <p class=\"meta\">Capture interval: {timelapse_status['capture_interval_minutes']} minutes</p>
-      <p class=\"meta\">Session duration: {timelapse_status['session_duration_hours']} hours</p>
-      <p class=\"meta\">Output FPS: {timelapse_status['output_fps']}</p>
-      <p class=\"meta\">Video codec: {html.escape(str(timelapse_status['video_codec']))}</p>
-      <p class=\"meta\">Frames directory: {html.escape(str(timelapse_status['frames_dir']))}</p>
-      <p class=\"meta\">Videos directory: {html.escape(str(timelapse_status['videos_dir']))}</p>
+      <p class=\"meta\">Session duration (image count): {timelapse_status['session_image_count']} images</p>
       <form method=\"post\" action=\"/capture-now\"> 
         <button type=\"submit\">Take timelapse photo now</button>
       </form>
@@ -115,8 +114,8 @@ def _html_page(
 
     <section>
       <h2>Video Management</h2>
-      <form method="post" action="/convert-now">
-        <button type="submit">Convert</button>
+      <form method=\"post\" action=\"/convert-now\">
+        <button type=\"submit\">Convert</button>
       </form>
       {videos_section}
     </section>
@@ -132,6 +131,8 @@ def _html_page(
           <p class=\"meta\">{html.escape(repo_commit_text)}</p>
         </div>
       </div>
+      <h3>Logs (last {MAX_LOG_MESSAGES})</h3>
+      <div class=\"logs\">{log_lines if log_lines else 'No logs yet.'}</div>
     </section>
   </main>
 
@@ -164,10 +165,24 @@ def run_web_server(
     main_branch: str,
     update_endpoint: str,
 ) -> None:
-    timelapse_manager = TimeLapseManager(repo_root=repo_root)
+    app_logs: deque[str] = deque(maxlen=MAX_LOG_MESSAGES)
+    logs_lock = threading.Lock()
+
+    def log_event(message: str) -> None:
+        entry = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {message}"
+        with logs_lock:
+            app_logs.append(entry)
+        print(entry)
+
+    timelapse_manager = TimeLapseManager(repo_root=repo_root, log_callback=log_event)
+
+    def recent_logs() -> list[str]:
+        with logs_lock:
+            return list(app_logs)
 
     def perform_update_and_restart() -> None:
         time.sleep(0.5)
+        log_event("Update requested")
         update_repo(repo_root, remote_name=remote_name, main_branch=main_branch)
         _restart_process()
 
@@ -209,6 +224,7 @@ def run_web_server(
                     repo_commit_text=repo_commit,
                     timelapse_status=timelapse_manager.get_status(),
                     videos=timelapse_manager.list_videos(),
+                    logs=recent_logs(),
                     notice=notice,
                 )
                 self._send_bytes(page, "text/html; charset=utf-8")
@@ -301,13 +317,13 @@ def run_web_server(
         def log_message(self, format_: str, *args: object) -> None:
             print(f"[web] {self.address_string()} - {format_ % args}")
 
-    print(f"Starting server on http://{host}:{port}")
+    log_event(f"Starting server on http://{host}:{port}")
     timelapse_manager.start()
     server = ThreadingHTTPServer((host, port), UpdaterRequestHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("Stopping server...")
+        log_event("Stopping server...")
     finally:
         timelapse_manager.stop()
         server.server_close()

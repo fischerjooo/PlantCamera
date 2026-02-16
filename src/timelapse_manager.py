@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import subprocess
 import threading
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 CAPTURE_INTERVAL_SECONDS = 30 * 60
 LIVE_VIEW_INTERVAL_SECONDS = 5
-SESSION_DURATION_SECONDS = 24 * 60 * 60
+SESSION_IMAGE_COUNT = 48
 OUTPUT_FPS = 24
 VIDEO_CODEC = "libx264"
 
@@ -27,22 +28,20 @@ class CaptureStatus:
 
 
 class TimeLapseManager:
-    def __init__(self, repo_root: Path) -> None:
+    def __init__(self, repo_root: Path, log_callback: Optional[Callable[[str], None]] = None) -> None:
         self.repo_root = repo_root
-        self.frames_dir = repo_root / "time_lapse_frames"
-        self.videos_dir = repo_root / "time_lapse_videos"
-        self.live_view_dir = repo_root / "live_view"
-        self.live_image_path = self.live_view_dir / "live.jpg"
+        self.log_callback = log_callback
+
+        self.base_media_dir = Path("/sdcard/DCIM/PlantCamera")
+        self.frames_dir = self.base_media_dir / "images"
+        self.videos_dir = self.base_media_dir / "videos"
+        self.live_image_path = self.base_media_dir / "live_view.jpg"
 
         self.capture_interval = timedelta(seconds=CAPTURE_INTERVAL_SECONDS)
         self.live_view_interval = timedelta(seconds=LIVE_VIEW_INTERVAL_SECONDS)
-        self.session_duration = timedelta(seconds=SESSION_DURATION_SECONDS)
+        self.session_image_count = SESSION_IMAGE_COUNT
         self.output_fps = OUTPUT_FPS
         self.video_codec = VIDEO_CODEC
-
-        self.frames_dir.mkdir(parents=True, exist_ok=True)
-        self.videos_dir.mkdir(parents=True, exist_ok=True)
-        self.live_view_dir.mkdir(parents=True, exist_ok=True)
 
         self._lock = threading.Lock()
         self._camera_lock = threading.Lock()
@@ -52,9 +51,36 @@ class TimeLapseManager:
         self._capture_thread: Optional[threading.Thread] = None
         self._live_view_thread: Optional[threading.Thread] = None
         self._session_thread: Optional[threading.Thread] = None
+        self._logs: deque[str] = deque(maxlen=100)
+
+        self._prepare_directories()
 
         self.session_start = self._load_session_start()
         self.next_capture_due = datetime.now()
+
+    def _prepare_directories(self) -> None:
+        try:
+            self.base_media_dir.mkdir(parents=True, exist_ok=True)
+            self.frames_dir.mkdir(parents=True, exist_ok=True)
+            self.videos_dir.mkdir(parents=True, exist_ok=True)
+            self._log(f"Media directories ready at {self.base_media_dir}")
+        except OSError as error:
+            fallback = self.repo_root / "DCIM" / "PlantCamera"
+            self.base_media_dir = fallback
+            self.frames_dir = fallback / "images"
+            self.videos_dir = fallback / "videos"
+            self.live_image_path = fallback / "live_view.jpg"
+            self.base_media_dir.mkdir(parents=True, exist_ok=True)
+            self.frames_dir.mkdir(parents=True, exist_ok=True)
+            self.videos_dir.mkdir(parents=True, exist_ok=True)
+            self._log(f"Failed to access /sdcard/DCIM/PlantCamera ({error}). Using fallback {fallback}")
+
+    def _log(self, message: str) -> None:
+        entry = f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} {message}"
+        with self._lock:
+            self._logs.append(entry)
+        if self.log_callback is not None:
+            self.log_callback(f"[timelapse] {message}")
 
     def _load_session_start(self) -> datetime:
         latest_video_end: Optional[datetime] = None
@@ -93,6 +119,7 @@ class TimeLapseManager:
         self._capture_thread.start()
         self._live_view_thread.start()
         self._session_thread.start()
+        self._log("Timelapse manager started")
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -102,6 +129,7 @@ class TimeLapseManager:
             self._live_view_thread.join(timeout=1)
         if self._session_thread is not None:
             self._session_thread.join(timeout=1)
+        self._log("Timelapse manager stopped")
 
     def _take_photo(self, destination: Path) -> Optional[str]:
         try:
@@ -128,11 +156,15 @@ class TimeLapseManager:
             self._stop_event.wait(1)
 
     def _live_view_loop(self) -> None:
+        last_error: Optional[str] = None
         while not self._stop_event.is_set():
             error = self._take_photo(self.live_image_path)
             with self._lock:
                 self._capture_status.last_live_view_error = error
 
+            if error != last_error and error is not None:
+                self._log(f"Live view capture error: {error}")
+            last_error = error
             self._stop_event.wait(self.live_view_interval.total_seconds())
 
     def _capture_frame(self, timestamp: datetime) -> None:
@@ -146,6 +178,11 @@ class TimeLapseManager:
                 self._capture_status.last_capture_error = None
             else:
                 self._capture_status.last_capture_error = error
+
+        if error is None:
+            self._log(f"Captured timelapse frame {frame_name}")
+        else:
+            self._log(f"Timelapse capture error: {error}")
 
     def trigger_capture_now(self) -> tuple[bool, str]:
         timestamp = datetime.now()
@@ -161,10 +198,13 @@ class TimeLapseManager:
 
     def _session_loop(self) -> None:
         while not self._stop_event.is_set():
-            if datetime.now() - self.session_start >= self.session_duration:
+            if self._collected_image_count() >= self.session_image_count:
                 self._encode_session()
 
             self._stop_event.wait(5)
+
+    def _collected_image_count(self) -> int:
+        return len(list(self.frames_dir.glob(f"{FRAME_PREFIX}*.jpg")))
 
     def _encode_session(self) -> tuple[bool, str]:
         with self._encode_lock:
@@ -203,6 +243,7 @@ class TimeLapseManager:
                     message = error.stderr.strip()
                 with self._lock:
                     self._capture_status.last_encode_error = message
+                self._log(f"Encode error: {message}")
                 return False, message
 
             for frame in frames:
@@ -211,6 +252,7 @@ class TimeLapseManager:
             with self._lock:
                 self._capture_status.last_encode_error = None
             self.session_start = session_end
+            self._log(f"Converted {len(frames)} images into {output_name}")
             return True, f"Converted {len(frames)} images into {output_name}."
 
     def trigger_convert_now(self) -> tuple[bool, str]:
@@ -226,12 +268,7 @@ class TimeLapseManager:
             live_view_error = self._capture_status.last_live_view_error
             encode_error = self._capture_status.last_encode_error
 
-        collected_images = len(list(self.frames_dir.glob(f"{FRAME_PREFIX}*.jpg")))
-        now = datetime.now()
-        session_elapsed = now - self.session_start
-        configured_count = int(self.session_duration.total_seconds() // self.capture_interval.total_seconds())
-
-        progress = min(100.0, (session_elapsed.total_seconds() / self.session_duration.total_seconds()) * 100)
+        collected_images = self._collected_image_count()
 
         return {
             "last_capture_timestamp": capture_ts.strftime("%Y-%m-%d %H:%M:%S") if capture_ts else "Never",
@@ -239,18 +276,14 @@ class TimeLapseManager:
             "last_live_view_error": live_view_error,
             "last_encode_error": encode_error,
             "session_start": self.session_start.strftime("%Y-%m-%d %H:%M:%S"),
-            "session_end": (self.session_start + self.session_duration).strftime("%Y-%m-%d %H:%M:%S"),
-            "session_progress_percent": round(progress, 2),
             "collected_images": collected_images,
-            "configured_image_count": configured_count,
+            "session_image_count": self.session_image_count,
             "capture_interval_minutes": int(self.capture_interval.total_seconds() // 60),
-            "session_duration_hours": int(self.session_duration.total_seconds() // 3600),
-            "output_fps": self.output_fps,
-            "video_codec": self.video_codec,
-            "frames_dir": str(self.frames_dir),
-            "videos_dir": str(self.videos_dir),
-            "live_view_dir": str(self.live_view_dir),
         }
+
+    def get_logs(self) -> list[str]:
+        with self._lock:
+            return list(self._logs)
 
     def list_videos(self) -> list[str]:
         return sorted((path.name for path in self.videos_dir.glob("*.mp4")), reverse=True)
@@ -268,3 +301,4 @@ class TimeLapseManager:
     def delete_video(self, filename: str) -> None:
         path = self.get_video_path(filename)
         path.unlink(missing_ok=True)
+        self._log(f"Deleted video {filename}")

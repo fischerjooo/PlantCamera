@@ -32,17 +32,18 @@ All runtime parameters are hardcoded at the top of `main.py`:
 ## Features
 
 - Timelapse manager (integrated into the existing app):
-  - captures `time_lapse_frames/frame_YYYYMMDD_HHMMSS.jpg` every 30 minutes via `termux-camera-photo`,
-  - captures a separate live-view image every 5 seconds into `live_view/live.jpg` (single file overwritten each cycle),
-  - runs 24-hour sessions,
+  - captures `DCIM/PlantCamera/images/frame_YYYYMMDD_HHMMSS.jpg` every 30 minutes via `termux-camera-photo`,
+  - captures a separate live-view image every 5 seconds into `DCIM/PlantCamera/live_view.jpg` (single file overwritten each cycle),
+  - automatically converts to video when 48 timelapse images are collected,
   - encodes collected frames with `ffmpeg` into H.264 MP4 (`libx264`) at 24 fps,
-  - stores output as `time_lapse_videos/timelapse_YYYYMMDD_HHMMSS_YYYYMMDD_HHMMSS.mp4`,
+  - stores output as `DCIM/PlantCamera/videos/timelapse_YYYYMMDD_HHMMSS_YYYYMMDD_HHMMSS.mp4`,
   - deletes source frames only when encode succeeds,
-  - preserves frames and retries encoding on the next cycle if encoding fails.
+  - preserves frames and retries encoding on the next cycle if encoding fails,
+  - supports manual conversion via `Convert` button (starts a new session after successful conversion).
 - Dashboard (`/`) with 5-second refresh:
   - live view,
   - last capture timestamp and errors,
-  - timelapse progress and image counters,
+  - concise timelapse info: captured images, capture interval, session duration (image count),
   - video management (watch, download, delete),
   - manual timelapse photo trigger button (`Take timelapse photo now`),
   - manual conversion button (`Convert`) to encode all currently collected images immediately and reset/start a new timelapse session.
@@ -51,6 +52,8 @@ All runtime parameters are hardcoded at the top of `main.py`:
   - `/videos/<file>.mp4`
   - `/download/<file>.mp4`
   - `POST /delete/<file>.mp4`
+  - `POST /capture-now`
+  - `POST /convert-now`
 - Git updater:
   - fetches/prunes remotes,
   - keeps the current non-`main` branch only while it still exists on the remote,
