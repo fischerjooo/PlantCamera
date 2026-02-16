@@ -69,7 +69,7 @@ def run_web_server(
   <title>PlantCamera Updater</title>
   <style>
     body {{ font-family: sans-serif; margin: 0; background: #f2f4f8; color: #202124; }}
-    main {{ padding: 20px; }}
+    main {{ padding: 0 20px 20px; }}
     p {{ margin: 4px 0 0; }}
     .notice {{ background: #dbeafe; border: 1px solid #93c5fd; padding: 10px; border-radius: 6px; }}
     .update_status {{ margin-top: 14px; padding: 12px; border-radius: 8px; background: #dcfce7; display: flex; align-items: center; gap: 14px; }}
