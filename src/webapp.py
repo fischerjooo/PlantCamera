@@ -84,7 +84,7 @@ def run_web_server(
     {notice}
     <img id="liveView" src="/{LIVE_VIEW_FILENAME}?t={int(time.time())}" alt="Live camera preview" style="width: 100%; max-width: 960px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff;" />
     <div class="update_status">
-      <form class="actions" method="post" action="{html.escape(update_endpoint)}">
+      <form id="updateForm" class="actions" method="post" action="{html.escape(update_endpoint)}">
         <button type="submit">Update</button>
       </form>
       <div class="status_text">
@@ -99,6 +99,21 @@ def run_web_server(
     setInterval(() => {{
       imageElement.src = "/{LIVE_VIEW_FILENAME}?t=" + Date.now();
     }}, refreshIntervalMs);
+
+    const updateForm = document.getElementById("updateForm");
+    if (updateForm) {{
+      updateForm.addEventListener("submit", async (event) => {{
+        event.preventDefault();
+
+        try {{
+          await fetch(updateForm.action, {{ method: "POST" }});
+        }} finally {{
+          setTimeout(() => {{
+            window.location.reload();
+          }}, 5000);
+        }}
+      }});
+    }}
   </script>
 </body>
 </html>
