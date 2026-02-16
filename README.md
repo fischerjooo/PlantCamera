@@ -39,6 +39,9 @@ All runtime parameters are hardcoded at the top of `main.py`:
   - otherwise switches to `main`,
   - pulls latest changes from `origin`,
   - restarts the Python process to run the updated code.
+- Live camera view:
+  - captures `live_view.jpg` every 5 seconds via `termux-camera-photo`,
+  - serves the image in the web UI and auto-refreshes it.
 
 ## Termux notes
 
