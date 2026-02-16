@@ -53,47 +53,42 @@ def run_web_server(
     def render_page(message: str | None = None) -> bytes:
         try:
             status = get_repo_status(repo_root)
-            title = f"Branch: {status.branch}"
-            subtitle = f"Last commit: {status.last_commit_date}"
+            status_text = f"Branch: {status.branch}"
+            commit_text = f"Last commit: {status.last_commit_date}"
         except GitCommandError as error:
-            title = "Branch: unknown"
-            subtitle = f"Git error: {error}"
+            status_text = "Branch: unknown"
+            commit_text = f"Git error: {error}"
 
         notice = f"<p class='notice'>{html.escape(message)}</p>" if message else ""
 
         html_page = f"""<!doctype html>
-<html lang=\"en\">
+<html lang="en">
 <head>
-  <meta charset=\"utf-8\">
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>PlantCamera Updater</title>
   <style>
     body {{ font-family: sans-serif; margin: 0; background: #f2f4f8; color: #202124; }}
-    header {{ display: flex; justify-content: space-between; align-items: center; padding: 16px; background: #0f766e; color: #fff; }}
-    h1 {{ font-size: 1.1rem; margin: 0; }}
-    p {{ margin: 4px 0 0; }}
     main {{ padding: 20px; }}
+    p {{ margin: 4px 0 0; }}
+    .notice {{ background: #dbeafe; border: 1px solid #93c5fd; padding: 10px; border-radius: 6px; }}
+    .status {{ margin-bottom: 12px; }}
+    .actions {{ margin-top: 14px; }}
     button {{ border: none; padding: 10px 16px; border-radius: 6px; background: #22c55e; color: #06240f; font-weight: 700; cursor: pointer; }}
     button:hover {{ background: #16a34a; color: #fff; }}
-    .notice {{ background: #dbeafe; border: 1px solid #93c5fd; padding: 10px; border-radius: 6px; }}
   </style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>{html.escape(title)}</h1>
-      <p>{html.escape(subtitle)}</p>
-    </div>
-    <form method=\"post\" action=\"{html.escape(update_endpoint)}\">
-      <button type=\"submit\">Update</button>
-    </form>
-  </header>
-    <main>
+  <main>
     {notice}
-    <p>Use the update button to fetch the latest changes and restart the app.</p>
-    <h2>Live Camera View</h2>
-    <p>The app captures a new image every {CAPTURE_INTERVAL_SECONDS} seconds.</p>
+    <div class="status">
+      <p>{html.escape(status_text)}</p>
+      <p>{html.escape(commit_text)}</p>
+    </div>
     <img id="liveView" src="/{LIVE_VIEW_FILENAME}?t={int(time.time())}" alt="Live camera preview" style="width: 100%; max-width: 960px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff;" />
+    <form class="actions" method="post" action="{html.escape(update_endpoint)}">
+      <button type="submit">Update</button>
+    </form>
   </main>
   <script>
     const imageElement = document.getElementById("liveView");
