@@ -1,6 +1,6 @@
 # PlantCamera
 
-A small Python web server designed for Termux on Android.
+A small Python web server designed for Termux on Android
 
 ## Run
 
