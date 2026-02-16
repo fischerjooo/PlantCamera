@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -10,6 +11,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from src.git_updater import GitCommandError, get_repo_status, update_repo
+
+
+LIVE_VIEW_FILENAME = "live_view.jpg"
+CAPTURE_INTERVAL_SECONDS = 5
 
 
 def _restart_process() -> None:
@@ -24,6 +29,27 @@ def run_web_server(
     main_branch: str,
     update_endpoint: str,
 ) -> None:
+    live_view_path = repo_root / LIVE_VIEW_FILENAME
+    capture_stop = threading.Event()
+
+    def capture_live_view_forever() -> None:
+        while not capture_stop.is_set():
+            try:
+                subprocess.run(
+                    ["termux-camera-photo", str(live_view_path)],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError:
+                print("[camera] termux-camera-photo not found. Live view capture is disabled.")
+                return
+            except subprocess.CalledProcessError as error:
+                stderr = error.stderr.strip() if error.stderr else "unknown error"
+                print(f"[camera] Failed to capture live view image: {stderr}")
+
+            capture_stop.wait(CAPTURE_INTERVAL_SECONDS)
+
     def render_page(message: str | None = None) -> bytes:
         try:
             status = get_repo_status(repo_root)
@@ -62,10 +88,20 @@ def run_web_server(
       <button type=\"submit\">Update</button>
     </form>
   </header>
-  <main>
+    <main>
     {notice}
     <p>Use the update button to fetch the latest changes and restart the app.</p>
+    <h2>Live Camera View</h2>
+    <p>The app captures a new image every {CAPTURE_INTERVAL_SECONDS} seconds.</p>
+    <img id="liveView" src="/{LIVE_VIEW_FILENAME}?t={int(time.time())}" alt="Live camera preview" style="width: 100%; max-width: 960px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff;" />
   </main>
+  <script>
+    const imageElement = document.getElementById("liveView");
+    const refreshIntervalMs = {CAPTURE_INTERVAL_SECONDS * 1000};
+    setInterval(() => {{
+      imageElement.src = "/{LIVE_VIEW_FILENAME}?t=" + Date.now();
+    }}, refreshIntervalMs);
+  </script>
 </body>
 </html>
 """
@@ -78,16 +114,32 @@ def run_web_server(
 
     class UpdaterRequestHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:  # noqa: N802 (http verb naming)
-            if self.path != "/":
-                self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
+            if self.path == "/":
+                page = render_page()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.end_headers()
+                self.wfile.write(page)
                 return
 
-            page = render_page()
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(page)))
-            self.end_headers()
-            self.wfile.write(page)
+            if self.path.startswith(f"/{LIVE_VIEW_FILENAME}"):
+                if not live_view_path.exists():
+                    self.send_error(HTTPStatus.NOT_FOUND, "Live view image not found yet")
+                    return
+
+                image = live_view_path.read_bytes()
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+                self.send_header("Pragma", "no-cache")
+                self.send_header("Expires", "0")
+                self.send_header("Content-Length", str(len(image)))
+                self.end_headers()
+                self.wfile.write(image)
+                return
+
+            self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
         def do_POST(self) -> None:  # noqa: N802 (http verb naming)
             if self.path != update_endpoint:
@@ -105,10 +157,15 @@ def run_web_server(
             print(f"[web] {self.address_string()} - {format_ % args}")
 
     print(f"Starting server on http://{host}:{port}")
+    capture_thread = threading.Thread(target=capture_live_view_forever, daemon=True)
+    capture_thread.start()
+
     server = ThreadingHTTPServer((host, port), UpdaterRequestHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("Stopping server...")
     finally:
+        capture_stop.set()
+        capture_thread.join(timeout=1)
         server.server_close()
