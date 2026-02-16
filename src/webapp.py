@@ -94,12 +94,9 @@ def run_web_server(
                 self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
                 return
 
-            page = render_page("Update started. The server will restart shortly.")
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(page)))
+            self.send_response(HTTPStatus.SEE_OTHER)
+            self.send_header("Location", "/")
             self.end_headers()
-            self.wfile.write(page)
 
             thread = threading.Thread(target=perform_update_and_restart, daemon=True)
             thread.start()

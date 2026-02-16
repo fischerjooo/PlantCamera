@@ -8,6 +8,12 @@ A small Python web server designed for Termux on Android.
 python main.py
 ```
 
+Or use the launcher script:
+
+```bash
+./main
+```
+
 Then open `http://127.0.0.1:8080` in your browser.
 
 ## Hardcoded parameters
@@ -47,4 +53,10 @@ Run inside your repo clone:
 
 ```bash
 python main.py
+```
+
+To manually sync the repo to the latest `main` with rebase:
+
+```bash
+./update_main.sh
 ```
