@@ -8,7 +8,7 @@ import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from src.git_updater import GitCommandError, get_repo_status, update_repo
 from src.timelapse_manager import TimeLapseManager
@@ -35,7 +35,7 @@ def _html_page(
     video_rows = ""
     for video in videos:
         escaped_video = html.escape(video)
-        quoted_video = escaped_video.replace(" ", "%20")
+        quoted_video = quote(video)
         video_rows += (
             "<tr>"
             f"<td>{escaped_video}</td>"
@@ -89,8 +89,10 @@ def _html_page(
     <section>
       <h2>Live View</h2>
       <img id=\"liveView\" src=\"/{LIVE_VIEW_FILENAME}?t={int(time.time())}\" alt=\"Live camera preview\" />
-      <p class=\"meta\">Last successful capture: <span class=\"ok\">{html.escape(str(timelapse_status['last_capture_timestamp']))}</span></p>
-      {f"<p class='meta error'>Last capture error: {html.escape(str(timelapse_status['last_capture_error']))}</p>" if timelapse_status['last_capture_error'] else ""}
+      {f"<p class='meta error'>Live view error: {html.escape(str(timelapse_status['last_live_view_error']))}</p>" if timelapse_status['last_live_view_error'] else ""}
+      <p class=\"meta\">Live view image path: {html.escape(str(timelapse_status['live_view_dir']))}/{LIVE_VIEW_FILENAME}</p>
+      <p class=\"meta\">Last successful timelapse capture: <span class=\"ok\">{html.escape(str(timelapse_status['last_capture_timestamp']))}</span></p>
+      {f"<p class='meta error'>Last timelapse capture error: {html.escape(str(timelapse_status['last_capture_error']))}</p>" if timelapse_status['last_capture_error'] else ""}
       {f"<p class='meta error'>Last encode error: {html.escape(str(timelapse_status['last_encode_error']))}</p>" if timelapse_status['last_encode_error'] else ""}
     </section>
 
@@ -106,6 +108,9 @@ def _html_page(
       <p class=\"meta\">Video codec: {html.escape(str(timelapse_status['video_codec']))}</p>
       <p class=\"meta\">Frames directory: {html.escape(str(timelapse_status['frames_dir']))}</p>
       <p class=\"meta\">Videos directory: {html.escape(str(timelapse_status['videos_dir']))}</p>
+      <form method=\"post\" action=\"/capture-now\"> 
+        <button type=\"submit\">Take timelapse photo now</button>
+      </form>
     </section>
 
     <section>
@@ -194,12 +199,14 @@ def run_web_server(
                     repo_branch = "Branch: unknown"
                     repo_commit = f"Git error: {error}"
 
+                notice = parse_qs(parsed.query).get("notice", [None])[0]
                 page = _html_page(
                     update_endpoint=update_endpoint,
                     repo_branch_text=repo_branch,
                     repo_commit_text=repo_commit,
                     timelapse_status=timelapse_manager.get_status(),
                     videos=timelapse_manager.list_videos(),
+                    notice=notice,
                 )
                 self._send_bytes(page, "text/html; charset=utf-8")
                 return
@@ -253,6 +260,15 @@ def run_web_server(
 
                 thread = threading.Thread(target=perform_update_and_restart, daemon=True)
                 thread.start()
+                return
+
+            if clean_path == "/capture-now":
+                ok, message = timelapse_manager.trigger_capture_now()
+                status_prefix = "OK" if ok else "ERROR"
+                encoded_notice = quote(f"{status_prefix}: {message}")
+                self.send_response(HTTPStatus.SEE_OTHER)
+                self.send_header("Location", f"/?notice={encoded_notice}")
+                self.end_headers()
                 return
 
             if clean_path.startswith("/delete/"):
