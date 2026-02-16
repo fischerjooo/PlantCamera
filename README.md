@@ -35,8 +35,9 @@ All runtime parameters are hardcoded at the top of `main.py`:
 - Has an **Update** button.
 - Update flow:
   - fetches/prunes remotes,
-  - switches to the first branch found that is not `main` (if any),
-  - otherwise switches to `main`,
+  - keeps the current non-`main` branch only while it still exists on the remote,
+  - otherwise switches to the first branch found that is not `main` (if any),
+  - if no non-`main` branch exists, switches to `main`,
   - pulls latest changes from `origin`,
   - restarts the Python process to run the updated code.
 - Live camera view:
