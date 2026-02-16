@@ -39,7 +39,7 @@ def _candidate_branches(repo_path: Path, remote_name: str, main_branch: str) -> 
 
     for branch in remote_raw.splitlines():
         clean = branch.strip()
-        if not clean or clean.endswith("/HEAD"):
+        if not clean or clean.endswith("/HEAD") or clean == remote_name:
             continue
 
         remote_prefix = f"{remote_name}/"
@@ -54,7 +54,13 @@ def _candidate_branches(repo_path: Path, remote_name: str, main_branch: str) -> 
 
     for branch in local_raw.splitlines():
         clean = branch.strip()
-        if not clean or clean == main_branch or clean in local_candidates:
+        if (
+            not clean
+            or clean == main_branch
+            or clean == "HEAD"
+            or clean.startswith("(HEAD detached")
+            or clean in local_candidates
+        ):
             continue
         local_candidates.append(clean)
 
@@ -85,8 +91,18 @@ def update_repo(repo_path: Path, remote_name: str, main_branch: str) -> RepoStat
     current_branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_path)
     candidates = _candidate_branches(repo_path, remote_name=remote_name, main_branch=main_branch)
 
-    if current_branch != main_branch:
+    current_branch_has_remote = (
+        current_branch == main_branch
+        or (
+            current_branch != "HEAD"
+            and _remote_branch_exists(repo_path, remote_name=remote_name, branch_name=current_branch)
+        )
+    )
+
+    if current_branch not in {main_branch, "HEAD"} and current_branch_has_remote:
         target_branch = current_branch
+    elif current_branch not in {main_branch, "HEAD"} and not current_branch_has_remote:
+        target_branch = main_branch
     elif candidates:
         target_branch = candidates[0]
     else:
