@@ -8,7 +8,10 @@ A small Python web server designed for Termux on Android.
 python main.py
 ```
 
-Then open `http://127.0.0.1:8080` in your browser.
+Then open one of the addresses printed in the terminal.
+
+- On the same device, use `http://127.0.0.1:8080`.
+- From another PC on the same network, use the phone/computer LAN IP, for example `http://192.168.1.23:8080`.
 
 ## Hardcoded parameters
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import os
+import socket
 import sys
 import threading
 import time
@@ -16,6 +17,26 @@ def _restart_process() -> None:
     os.execv(sys.executable, [sys.executable, *sys.argv])
 
 
+def _discover_lan_urls(host: str, port: int) -> list[str]:
+    if host in {"127.0.0.1", "localhost"}:
+        return [f"http://{host}:{port}"]
+
+    urls = {f"http://{host}:{port}"}
+    try:
+        hostname = socket.gethostname()
+        for family, _, _, _, sockaddr in socket.getaddrinfo(hostname, None, family=socket.AF_INET):
+            if family != socket.AF_INET:
+                continue
+            ip = sockaddr[0]
+            if ip.startswith("127."):
+                continue
+            urls.add(f"http://{ip}:{port}")
+    except OSError:
+        pass
+
+    return sorted(urls)
+
+
 def run_web_server(
     host: str,
     port: int,
@@ -24,6 +45,8 @@ def run_web_server(
     main_branch: str,
     update_endpoint: str,
 ) -> None:
+    lan_urls = _discover_lan_urls(host, port)
+
     def render_page(message: str | None = None) -> bytes:
         try:
             status = get_repo_status(repo_root)
@@ -65,6 +88,7 @@ def run_web_server(
   <main>
     {notice}
     <p>Use the update button to fetch the latest changes and restart the app.</p>
+    <p>Open from another device using: {html.escape(lan_urls[0])}</p>
   </main>
 </body>
 </html>
@@ -107,7 +131,9 @@ def run_web_server(
         def log_message(self, format_: str, *args: object) -> None:
             print(f"[web] {self.address_string()} - {format_ % args}")
 
-    print(f"Starting server on http://{host}:{port}")
+    print("Starting server. Reach it at:")
+    for url in lan_urls:
+        print(f"  - {url}")
     server = ThreadingHTTPServer((host, port), UpdaterRequestHandler)
     try:
         server.serve_forever()
