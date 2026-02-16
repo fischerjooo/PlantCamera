@@ -131,7 +131,6 @@ def _html_page(
     setInterval(() => {{
       const liveView = document.getElementById('liveView');
       liveView.src = '/{LIVE_VIEW_FILENAME}?t=' + Date.now();
-      window.location.reload();
     }}, {DASHBOARD_REFRESH_SECONDS * 1000});
 
     const updateForm = document.getElementById('updateForm');
