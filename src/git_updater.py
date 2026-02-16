@@ -30,7 +30,7 @@ def _run_git(args: Iterable[str], repo_path: Path) -> str:
     return process.stdout.strip()
 
 
-def _candidate_branches(repo_path: Path, main_branch: str) -> list[str]:
+def _candidate_branches(repo_path: Path, remote_name: str, main_branch: str) -> list[str]:
     remote_raw = _run_git(["branch", "-r", "--format=%(refname:short)"], repo_path)
     local_raw = _run_git(["branch", "--format=%(refname:short)"], repo_path)
 
@@ -40,8 +40,11 @@ def _candidate_branches(repo_path: Path, main_branch: str) -> list[str]:
         clean = branch.strip()
         if not clean or clean.endswith("/HEAD"):
             continue
-        if clean.startswith("origin/"):
-            clean = clean.removeprefix("origin/")
+        remote_prefix = f"{remote_name}/"
+        if clean.startswith(remote_prefix):
+            clean = clean.removeprefix(remote_prefix)
+        elif "/" in clean:
+            continue
         if clean == main_branch:
             continue
         if clean not in candidates:
@@ -55,6 +58,11 @@ def _candidate_branches(repo_path: Path, main_branch: str) -> list[str]:
             candidates.append(clean)
 
     return candidates
+
+
+def _remote_branch_exists(repo_path: Path, remote_name: str, branch_name: str) -> bool:
+    refs = _run_git(["ls-remote", "--heads", remote_name, branch_name], repo_path)
+    return bool(refs)
 
 
 def get_repo_status(repo_path: Path) -> RepoStatus:
@@ -72,8 +80,18 @@ def get_repo_status(repo_path: Path) -> RepoStatus:
 
 def update_repo(repo_path: Path, remote_name: str, main_branch: str) -> RepoStatus:
     _run_git(["fetch", "--all", "--prune"], repo_path)
-    candidates = _candidate_branches(repo_path, main_branch=main_branch)
-    target_branch = candidates[0] if candidates else main_branch
+    current_branch = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], repo_path)
+    candidates = _candidate_branches(repo_path, remote_name=remote_name, main_branch=main_branch)
+
+    if current_branch in candidates:
+        target_branch = current_branch
+    elif candidates:
+        target_branch = candidates[0]
+    else:
+        target_branch = main_branch
+
+    if not _remote_branch_exists(repo_path, remote_name=remote_name, branch_name=target_branch):
+        target_branch = main_branch
 
     _run_git(["checkout", target_branch], repo_path)
     _run_git(["pull", "--ff-only", remote_name, target_branch], repo_path)
