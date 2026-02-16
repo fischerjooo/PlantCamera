@@ -6,7 +6,7 @@ from src.webapp import run_web_server
 # Hardcoded runtime parameters
 # =============================
 HOST = "0.0.0.0"
-PORT = 8080
+PORT = 8000
 REPO_ROOT = Path(__file__).resolve().parent
 REMOTE_NAME = "origin"
 MAIN_BRANCH = "main"

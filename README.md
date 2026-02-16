@@ -1,6 +1,6 @@
 # PlantCamera
 
-A small Python web server designed for Termux on Android
+A small Python web server designed for Termux on Android.
 
 ## Run
 
@@ -14,7 +14,7 @@ Or use the launcher script:
 ./main
 ```
 
-Then open `http://127.0.0.1:8080` in your browser.
+Then open `http://127.0.0.1:8000` in your browser.
 
 ## Hardcoded parameters
 
@@ -31,26 +31,44 @@ All runtime parameters are hardcoded at the top of `main.py`:
 
 ## Features
 
-- Shows the current git branch and last commit timestamp at the top.
-- Has an **Update** button.
-- Update flow:
+- Timelapse manager (integrated into the existing app):
+  - captures `DCIM/PlantCamera/images/frame_YYYYMMDD_HHMMSS.jpg` every 30 minutes via `termux-camera-photo`,
+  - captures a separate live-view image every 5 seconds into `DCIM/PlantCamera/live_view.jpg` (single file overwritten each cycle),
+  - automatically converts to video when 48 timelapse images are collected,
+  - encodes collected frames with `ffmpeg` into H.264 MP4 (`libx264`) at 24 fps,
+  - stores output as `DCIM/PlantCamera/videos/timelapse_YYYYMMDD_HHMMSS_YYYYMMDD_HHMMSS.mp4`,
+  - deletes source frames only when encode succeeds,
+  - preserves frames and retries encoding on the next cycle if encoding fails,
+  - supports manual conversion via `Convert` button (starts a new session after successful conversion).
+- Dashboard (`/`) with 5-second refresh:
+  - live view,
+  - last capture timestamp and errors,
+  - concise timelapse info: captured images, capture interval, session duration (image count),
+  - video management (watch, download, delete),
+  - manual timelapse photo trigger button (`Take timelapse photo now`),
+  - manual conversion button (`Convert`) to encode all currently collected images immediately and reset/start a new timelapse session.
+- Media endpoints:
+  - `/live.jpg`
+  - `/videos/<file>.mp4`
+  - `/download/<file>.mp4`
+  - `POST /delete/<file>.mp4`
+  - `POST /capture-now`
+  - `POST /convert-now`
+- Git updater:
   - fetches/prunes remotes,
   - keeps the current non-`main` branch only while it still exists on the remote,
   - otherwise switches to the first branch found that is not `main` (if any),
   - if no non-`main` branch exists, switches to `main`,
   - pulls latest changes from `origin`,
   - restarts the Python process to run the updated code.
-- Live camera view:
-  - captures `live_view.jpg` every 5 seconds via `termux-camera-photo`,
-  - serves the image in the web UI and auto-refreshes it.
 
 ## Termux notes
 
-Install Python + Git:
+Install Python + Git + ffmpeg:
 
 ```bash
 pkg update
-pkg install python git
+pkg install python git ffmpeg
 ```
 
 Run inside your repo clone:
