@@ -72,8 +72,9 @@ def run_web_server(
     main {{ padding: 20px; }}
     p {{ margin: 4px 0 0; }}
     .notice {{ background: #dbeafe; border: 1px solid #93c5fd; padding: 10px; border-radius: 6px; }}
-    .status {{ margin-bottom: 12px; }}
-    .actions {{ margin-top: 14px; }}
+    .update_status {{ margin-top: 14px; padding: 12px; border-radius: 8px; background: #dcfce7; display: flex; align-items: center; gap: 14px; }}
+    .status_text p {{ margin: 2px 0; }}
+    .actions {{ margin: 0; }}
     button {{ border: none; padding: 10px 16px; border-radius: 6px; background: #22c55e; color: #06240f; font-weight: 700; cursor: pointer; }}
     button:hover {{ background: #16a34a; color: #fff; }}
   </style>
@@ -81,14 +82,16 @@ def run_web_server(
 <body>
   <main>
     {notice}
-    <div class="status">
-      <p>{html.escape(status_text)}</p>
-      <p>{html.escape(commit_text)}</p>
-    </div>
     <img id="liveView" src="/{LIVE_VIEW_FILENAME}?t={int(time.time())}" alt="Live camera preview" style="width: 100%; max-width: 960px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff;" />
-    <form class="actions" method="post" action="{html.escape(update_endpoint)}">
-      <button type="submit">Update</button>
-    </form>
+    <div class="update_status">
+      <form class="actions" method="post" action="{html.escape(update_endpoint)}">
+        <button type="submit">Update</button>
+      </form>
+      <div class="status_text">
+        <p>{html.escape(status_text)}</p>
+        <p>{html.escape(commit_text)}</p>
+      </div>
+    </div>
   </main>
   <script>
     const imageElement = document.getElementById("liveView");
