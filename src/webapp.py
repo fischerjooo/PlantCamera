@@ -82,7 +82,7 @@ def run_web_server(
 <body>
   <main>
     {notice}
-    <img id="liveView" src="/{LIVE_VIEW_FILENAME}?t={int(time.time())}" alt="Live camera preview" style="width: 100%; max-width: 960px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff;" />
+    <img id="liveView" src="/{LIVE_VIEW_FILENAME}?t={int(time.time())}" alt="Live camera preview" style="width: 100%; max-width: 960px; border-radius: 8px; border: 1px solid #cbd5e1; background: #fff; display: block; margin: 0 auto; transform: rotate(-90deg); transform-origin: center;" />
     <div class="update_status">
       <form id="updateForm" class="actions" method="post" action="{html.escape(update_endpoint)}">
         <button type="submit">Update</button>
