@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
 
 def list_encoders() -> set[str]:
-    process = subprocess.run(["ffmpeg", "-encoders"], check=True, capture_output=True, text=True)
+    process = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], check=True, capture_output=True, text=True)
     encoders: set[str] = set()
     for line in process.stdout.splitlines():
         parts = line.split()
@@ -14,32 +15,178 @@ def list_encoders() -> set[str]:
     return encoders
 
 
-def encode_timelapse(image_glob: Path, output_file: Path, fps: int, codec: str) -> None:
+def _probe_first_image_resolution(image_glob: Path) -> tuple[int, int] | None:
+    """
+    Uses ffprobe to get the resolution of the first image matched by the glob.
+    Returns (width, height) or None if no images / probe fails.
+    """
+    # Path is expected like: /sdcard/.../frame_*.jpg
+    # We need to resolve the first matching file in the parent directory.
+    parent = image_glob.parent
+    pattern = image_glob.name
+    try:
+        first = next(parent.glob(pattern))
+    except StopIteration:
+        return None
+
+    # ffprobe can read single images and report width/height.
+    try:
+        p = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "csv=p=0:s=x",
+                str(first),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        out = p.stdout.strip()
+        if "x" not in out:
+            return None
+        w_s, h_s = out.split("x", 1)
+        return int(w_s), int(h_s)
+    except Exception:
+        return None
+
+
+def _needs_downscale_for_h264(width: int, height: int) -> bool:
+    """
+    libx264 operates in 16x16 macroblocks. Many H.264 level constraints bite on very large frames.
+    If macroblocks/frame is extremely high, proactively downscale.
+    """
+    mb_w = (width + 15) // 16
+    mb_h = (height + 15) // 16
+    mb_per_frame = mb_w * mb_h
+    # The failure you hit was at 155,952 MB/frame. Use a conservative threshold well below that.
+    return mb_per_frame > 120_000
+
+
+def _build_scale_filter(width: int, height: int, max_long_edge: int) -> str:
+    """
+    Scale so that the long edge is <= max_long_edge, preserve aspect ratio,
+    and keep dimensions divisible by 2 (required for yuv420p).
+    """
+    if width >= height:
+        # width is long edge
+        return f"scale={max_long_edge}:-2"
+    return f"scale=-2:{max_long_edge}"
+
+
+def encode_timelapse(
+    image_glob: Path,
+    output_file: Path,
+    fps: int,
+    codec: str,
+    *,
+    max_long_edge: int | None = 2160,
+    crf: int | None = None,
+    preset: str | None = "veryfast",
+) -> None:
+    """
+    Encodes a timelapse from images.
+
+    Fixes the 'frame MB size ... > level limit' issue (common with huge photos on H.264)
+    by automatically downscaling when using libx264 / h264-like encoders.
+
+    Args:
+        image_glob: Path with wildcard (e.g. Path("/sdcard/.../frame_*.jpg"))
+        output_file: Target MP4 path.
+        fps: Output framerate.
+        codec: ffmpeg video encoder name (e.g. "libx264", "h264_mediacodec", "libx265").
+        max_long_edge: If set, will downscale to this max long edge when needed.
+                      Default 2160 (4K long edge) is a good timelapse target.
+        crf: Optional constant quality factor for libx264/libx265 (e.g. 18-28). If None, ffmpeg defaults.
+        preset: Optional x264/x265 preset (e.g. ultrafast, veryfast, medium, slow).
+    """
     output_file.parent.mkdir(parents=True, exist_ok=True)
     temporary_output = output_file.with_suffix(".tmp.mp4")
-    if temporary_output.exists():
-        temporary_output.unlink(missing_ok=True)
+    temporary_output.unlink(missing_ok=True)
 
-    subprocess.run(
-        [
-            "ffmpeg",
-            "-y",
-            "-framerate",
-            str(fps),
-            "-pattern_type",
-            "glob",
-            "-i",
-            str(image_glob),
-            "-c:v",
-            codec,
-            "-pix_fmt",
-            "yuv420p",
-            str(temporary_output),
-        ],
-        check=True,
-        capture_output=True,
-        text=False,
-    )
+    # Decide whether to apply scaling to avoid H.264 level/macroblock limits.
+    vf_filters: list[str] = []
+    res = _probe_first_image_resolution(image_glob)
+    if res is not None:
+        w, h = res
+        is_h264_family = codec in {"libx264", "h264", "h264_mediacodec"} or "264" in codec
+        if is_h264_family and max_long_edge is not None and _needs_downscale_for_h264(w, h):
+            vf_filters.append(_build_scale_filter(w, h, max_long_edge))
+
+    # Always force a widely compatible pixel format.
+    vf_filters.append("format=yuv420p")
+    vf = ",".join(vf_filters)
+
+    cmd: list[str] = [
+        "ffmpeg",
+        "-hide_banner",
+        "-y",
+        "-framerate",
+        str(fps),
+        "-pattern_type",
+        "glob",
+        "-i",
+        str(image_glob),
+        "-vf",
+        vf,
+        "-c:v",
+        codec,
+    ]
+
+    # Quality settings where applicable.
+    if preset:
+        cmd += ["-preset", preset]
+    if crf is not None:
+        cmd += ["-crf", str(crf)]
+
+    # Write output
+    cmd.append(str(temporary_output))
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or b"").decode(errors="replace")
+        stdout = (e.stdout or b"").decode(errors="replace")
+
+        # If we didn't scale on first attempt and we detect the macroblock/level error, retry with scaling.
+        # (Useful when ffprobe couldn't read the image or the codec isn't detected by our heuristic.)
+        level_limit_hit = bool(
+            re.search(r"frame MB size .* > level limit", stderr, re.IGNORECASE)
+            or re.search(r"level limit", stderr, re.IGNORECASE)
+        )
+
+        if level_limit_hit and max_long_edge is not None and "scale=" not in vf:
+            retry_vf = ",".join([f"scale={max_long_edge}:-2", "format=yuv420p"])
+            retry_cmd = cmd.copy()
+            # replace vf argument
+            vf_idx = retry_cmd.index("-vf")
+            retry_cmd[vf_idx + 1] = retry_vf
+
+            temporary_output.unlink(missing_ok=True)
+            try:
+                subprocess.run(retry_cmd, check=True, capture_output=True)
+            except subprocess.CalledProcessError as e2:
+                stderr2 = (e2.stderr or b"").decode(errors="replace")
+                stdout2 = (e2.stdout or b"").decode(errors="replace")
+                temporary_output.unlink(missing_ok=True)
+                raise RuntimeError(
+                    "ffmpeg failed (including retry with downscale).\n\n"
+                    f"Command: {' '.join(retry_cmd)}\n\n"
+                    f"STDERR:\n{stderr2}\n\nSTDOUT:\n{stdout2}"
+                ) from e2
+        else:
+            temporary_output.unlink(missing_ok=True)
+            raise RuntimeError(
+                "ffmpeg failed.\n\n"
+                f"Command: {' '.join(cmd)}\n\n"
+                f"STDERR:\n{stderr}\n\nSTDOUT:\n{stdout}"
+            ) from e
 
     size = temporary_output.stat().st_size if temporary_output.exists() else 0
     # Tiny MP4 files usually indicate a failed or empty conversion even if ffmpeg returned 0.
@@ -47,7 +194,7 @@ def encode_timelapse(image_glob: Path, output_file: Path, fps: int, codec: str) 
         temporary_output.unlink(missing_ok=True)
         raise RuntimeError(
             f"Generated video file is too small ({size} bytes). "
-            "Conversion likely failed; check ffmpeg installation, codec support, and captured frames."
+            "Conversion likely failed; check ffmpeg output and captured frames."
         )
 
     temporary_output.replace(output_file)
