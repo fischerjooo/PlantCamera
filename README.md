@@ -82,3 +82,13 @@ To manually sync the repo to the latest `main` with rebase:
 ```bash
 ./update_main.sh
 ```
+
+## Testing
+
+Run the HTTP integration test suite with:
+
+```bash
+pytest -q
+```
+
+The tests start the web server, interact only through HTTP endpoints, and use isolated temporary media folders for cleanup between tests.

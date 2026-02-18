@@ -5,6 +5,7 @@ import threading
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import os
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -32,7 +33,8 @@ class TimeLapseManager:
         self.repo_root = repo_root
         self.log_callback = log_callback
 
-        self.base_media_dir = Path("/sdcard/DCIM/PlantCamera")
+        media_dir_override = os.environ.get("PLANTCAMERA_MEDIA_DIR")
+        self.base_media_dir = Path(media_dir_override) if media_dir_override else Path("/sdcard/DCIM/PlantCamera")
         self.frames_dir = self.base_media_dir / "images"
         self.videos_dir = self.base_media_dir / "videos"
         self.live_image_path = self.base_media_dir / "live_view.jpg"
@@ -40,8 +42,8 @@ class TimeLapseManager:
         self.capture_interval = timedelta(seconds=CAPTURE_INTERVAL_SECONDS)
         self.live_view_interval = timedelta(seconds=LIVE_VIEW_INTERVAL_SECONDS)
         self.session_image_count = SESSION_IMAGE_COUNT
-        self.output_fps = OUTPUT_FPS
-        self.video_codec = VIDEO_CODEC
+        self.output_fps = int(os.environ.get("PLANTCAMERA_OUTPUT_FPS", OUTPUT_FPS))
+        self.video_codec = os.environ.get("PLANTCAMERA_VIDEO_CODEC", VIDEO_CODEC)
 
         self._lock = threading.Lock()
         self._camera_lock = threading.Lock()
@@ -52,6 +54,7 @@ class TimeLapseManager:
         self._live_view_thread: Optional[threading.Thread] = None
         self._session_thread: Optional[threading.Thread] = None
         self._logs: deque[str] = deque(maxlen=100)
+        self._available_ffmpeg_encoders: Optional[set[str]] = None
 
         self._prepare_directories()
 
@@ -138,13 +141,64 @@ class TimeLapseManager:
                     ["termux-camera-photo", str(destination)],
                     check=True,
                     capture_output=True,
-                    text=True,
+                    text=False,
                 )
             return None
         except FileNotFoundError:
             return "termux-camera-photo not found"
         except subprocess.CalledProcessError as error:
-            return error.stderr.strip() if error.stderr else "unknown camera capture error"
+            stderr = (error.stderr or b"").decode("utf-8", errors="replace").strip()
+            return stderr if stderr else "unknown camera capture error"
+
+    def _get_available_encoders(self) -> set[str]:
+        if self._available_ffmpeg_encoders is not None:
+            return self._available_ffmpeg_encoders
+
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-encoders"],
+                check=True,
+                capture_output=True,
+                text=False,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            self._available_ffmpeg_encoders = set()
+            return self._available_ffmpeg_encoders
+
+        output = (result.stdout or b"").decode("utf-8", errors="replace")
+        encoders: set[str] = set()
+        for line in output.splitlines():
+            tokens = line.split()
+            if len(tokens) >= 2 and tokens[0].startswith("V"):
+                encoders.add(tokens[1])
+        self._available_ffmpeg_encoders = encoders
+        return encoders
+
+    def _build_ffmpeg_cmd(self, output_path: Path) -> list[str]:
+        requested_codec = self.video_codec
+        available_encoders = self._get_available_encoders()
+        codec = requested_codec if requested_codec in available_encoders else "mpeg4"
+        if codec != requested_codec:
+            self._log(
+                f"Requested codec '{requested_codec}' not available in ffmpeg; "
+                f"falling back to '{codec}'"
+            )
+
+        return [
+            "ffmpeg",
+            "-y",
+            "-framerate",
+            str(self.output_fps),
+            "-pattern_type",
+            "glob",
+            "-i",
+            str(self.frames_dir / f"{FRAME_PREFIX}*.jpg"),
+            "-c:v",
+            codec,
+            "-pix_fmt",
+            "yuv420p",
+            str(output_path),
+        ]
 
     def _capture_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -219,28 +273,14 @@ class TimeLapseManager:
             )
             output_path = self.videos_dir / output_name
 
-            ffmpeg_cmd = [
-                "ffmpeg",
-                "-y",
-                "-framerate",
-                str(self.output_fps),
-                "-pattern_type",
-                "glob",
-                "-i",
-                str(self.frames_dir / f"{FRAME_PREFIX}*.jpg"),
-                "-c:v",
-                self.video_codec,
-                "-pix_fmt",
-                "yuv420p",
-                str(output_path),
-            ]
+            ffmpeg_cmd = self._build_ffmpeg_cmd(output_path)
 
             try:
-                subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
+                subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=False)
             except (FileNotFoundError, subprocess.CalledProcessError) as error:
                 message = str(error)
                 if isinstance(error, subprocess.CalledProcessError) and error.stderr:
-                    message = error.stderr.strip()
+                    message = error.stderr.decode("utf-8", errors="replace").strip()
                 with self._lock:
                     self._capture_status.last_encode_error = message
                 self._log(f"Encode error: {message}")

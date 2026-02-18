@@ -164,6 +164,7 @@ def run_web_server(
     remote_name: str,
     main_branch: str,
     update_endpoint: str,
+    test_mode: bool = False,
 ) -> None:
     app_logs: deque[str] = deque(maxlen=MAX_LOG_MESSAGES)
     logs_lock = threading.Lock()
@@ -207,6 +208,10 @@ def run_web_server(
         def do_GET(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             clean_path = parsed.path
+
+            if test_mode and clean_path == "/__health":
+                self._send_bytes(b"ok", "text/plain; charset=utf-8")
+                return
 
             if clean_path == "/":
                 try:
@@ -271,6 +276,12 @@ def run_web_server(
         def do_POST(self) -> None:  # noqa: N802
             parsed = urlparse(self.path)
             clean_path = parsed.path
+
+            if test_mode and clean_path == "/__shutdown":
+                self.send_response(HTTPStatus.OK)
+                self.end_headers()
+                threading.Thread(target=server.shutdown, daemon=True).start()
+                return
 
             if clean_path == update_endpoint:
                 self.send_response(HTTPStatus.SEE_OTHER)
