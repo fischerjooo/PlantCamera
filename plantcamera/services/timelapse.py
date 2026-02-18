@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import threading
+import traceback
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -113,27 +114,53 @@ class TimelapseService:
 
     def _capture_loop(self) -> None:
         while not self._stop_event.is_set():
-            now = datetime.now()
-            if now >= self.next_capture_due:
-                self._capture_frame(now)
-                self.next_capture_due = now + self.capture_interval
-            self._stop_event.wait(1)
+            try:
+                now = datetime.now()
+                if now >= self.next_capture_due:
+                    self._capture_frame(now)
+                    self.next_capture_due = now + self.capture_interval
+                self._stop_event.wait(1)
+            except Exception as error:  # pragma: no cover - safety net
+                message = f"Capture loop crashed: {error}"
+                with self._lock:
+                    self._capture_status.last_capture_error = message
+                self._log(message)
+                self._log(traceback.format_exc().strip())
+                self._stop_event.wait(1)
 
     def _live_view_loop(self) -> None:
         while not self._stop_event.is_set():
-            error = self._take_photo(self.live_image_path)
-            with self._lock:
-                self._capture_status.last_live_view_error = error
-            self._stop_event.wait(self.live_view_interval.total_seconds())
+            try:
+                error = self._take_photo(self.live_image_path)
+                with self._lock:
+                    self._capture_status.last_live_view_error = error
+                self._stop_event.wait(self.live_view_interval.total_seconds())
+            except Exception as error:  # pragma: no cover - safety net
+                message = f"Live view loop crashed: {error}"
+                with self._lock:
+                    self._capture_status.last_live_view_error = message
+                self._log(message)
+                self._log(traceback.format_exc().strip())
+                self._stop_event.wait(1)
 
     def _collected_images(self) -> list[Path]:
         return sorted(self.frames_dir.glob(f"{FRAME_PREFIX}*.jpg"))
 
     def _session_loop(self) -> None:
         while not self._stop_event.is_set():
-            if len(self._collected_images()) >= self.session_image_count:
-                self._encode_session()
-            self._stop_event.wait(5)
+            try:
+                if len(self._collected_images()) >= self.session_image_count:
+                    success, message = self._encode_session()
+                    if not success:
+                        self._log(f"Session encode error: {message}")
+                self._stop_event.wait(5)
+            except Exception as error:  # pragma: no cover - safety net
+                message = f"Session loop crashed: {error}"
+                with self._lock:
+                    self._capture_status.last_encode_error = message
+                self._log(message)
+                self._log(traceback.format_exc().strip())
+                self._stop_event.wait(1)
 
     def _resolve_codec(self) -> str:
         try:
@@ -156,12 +183,20 @@ class TimelapseService:
             output = self.videos_dir / output_name
             try:
                 self.encode_timelapse(self.frames_dir / f"{FRAME_PREFIX}*.jpg", output, self.output_fps, self._resolve_codec())
-            except (FileNotFoundError, subprocess.CalledProcessError) as error:
+            except (FileNotFoundError, subprocess.CalledProcessError, RuntimeError) as error:
                 message = str(error)
                 if isinstance(error, subprocess.CalledProcessError):
                     message = (error.stderr or b"").decode("utf-8", errors="replace").strip() or message
                 with self._lock:
                     self._capture_status.last_encode_error = message
+                self._log(f"Encode failed: {message}")
+                return False, message
+            except Exception as error:  # pragma: no cover - safety net
+                message = f"Unexpected encode error: {error}"
+                with self._lock:
+                    self._capture_status.last_encode_error = message
+                self._log(message)
+                self._log(traceback.format_exc().strip())
                 return False, message
             for frame in frames:
                 frame.unlink(missing_ok=True)

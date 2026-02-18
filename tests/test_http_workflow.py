@@ -96,7 +96,7 @@ def test_video_watch_and_download_endpoints(server):
 
     assert watch.status == 200
     assert watch.headers.get("Content-Type") == "video/mp4"
-    assert watch_body == b"FAKE-MP4"
+    assert watch_body.startswith(b"FAKE-MP4")
 
     with urlopen(f"{server['base_url']}/download/{file_name}", timeout=3) as download:
         download_body = download.read()
@@ -104,7 +104,7 @@ def test_video_watch_and_download_endpoints(server):
     assert download.status == 200
     assert download.headers.get("Content-Type") == "video/mp4"
     assert download.headers.get("Content-Disposition") == f"attachment; filename={file_name}"
-    assert download_body == b"FAKE-MP4"
+    assert download_body.startswith(b"FAKE-MP4")
 
 
 def test_convert_now_with_no_images_returns_error_notice(server):
@@ -133,3 +133,20 @@ def test_missing_video_endpoints_return_404(server):
             raise AssertionError(f"Expected HTTPError for {path}")
         except HTTPError as error:
             assert error.code == 404
+
+
+def test_convert_now_rejects_tiny_output_and_reports_error(server_with_tiny_video):
+    _post(f"{server_with_tiny_video['base_url']}/capture-now").read()
+
+    with _post(f"{server_with_tiny_video['base_url']}/convert-now") as response:
+        final_url = response.url
+
+    assert "notice=ERROR%3A" in final_url
+    assert "Generated%20video%20file%20is%20too%20small" in final_url
+
+    with urlopen(f"{server_with_tiny_video['base_url']}/", timeout=3) as dashboard:
+        body = dashboard.read().decode("utf-8")
+
+    assert "Last encode error:" in body
+    assert "Generated video file is too small" in body
+    assert "Encode failed:" in body

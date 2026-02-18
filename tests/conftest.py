@@ -18,8 +18,7 @@ if str(ROOT) not in sys.path:
 from src.webapp import run_web_server
 
 
-@pytest.fixture
-def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def _start_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ffmpeg_payload: bytes):
     media_dir = tmp_path / "media"
     bin_dir = tmp_path / "bin"
     media_dir.mkdir(parents=True, exist_ok=True)
@@ -47,7 +46,7 @@ def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         "    raise SystemExit(0)\n"
         "output = Path(sys.argv[-1])\n"
         "output.parent.mkdir(parents=True, exist_ok=True)\n"
-        "output.write_bytes(b'FAKE-MP4')\n"
+        f"output.write_bytes({ffmpeg_payload!r})\n"
     )
     ffmpeg.chmod(0o755)
 
@@ -86,11 +85,27 @@ def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     else:
         raise RuntimeError("server did not start")
 
-    yield {"base_url": base_url, "media_dir": media_dir}
+    return {"base_url": base_url, "media_dir": media_dir, "thread": thread}
 
+
+def _stop_server(base_url: str, thread: threading.Thread) -> None:
     try:
         req = Request(f"{base_url}/__shutdown", method="POST")
         urlopen(req, timeout=2).read()
     except HTTPError:
         pass
     thread.join(timeout=5)
+
+
+@pytest.fixture
+def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    info = _start_server(tmp_path, monkeypatch, b"FAKE-MP4" * 40)
+    yield {"base_url": info["base_url"], "media_dir": info["media_dir"]}
+    _stop_server(info["base_url"], info["thread"])
+
+
+@pytest.fixture
+def server_with_tiny_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    info = _start_server(tmp_path, monkeypatch, b"0" * 48)
+    yield {"base_url": info["base_url"], "media_dir": info["media_dir"]}
+    _stop_server(info["base_url"], info["thread"])
