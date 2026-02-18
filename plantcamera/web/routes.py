@@ -37,7 +37,7 @@ def dispatch(handler, method: str, raw_path: str) -> None:
             repo_commit_text=repo_commit,
             status=app.timelapse.get_status(),
             videos=app.timelapse.list_videos(),
-            logs=app.recent_logs(),
+            logs=app.timelapse.get_logs() + app.recent_logs(),
             notice=notice,
         )
         handler.send_bytes(page, "text/html; charset=utf-8")
