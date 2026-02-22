@@ -15,13 +15,9 @@ class RepoStatus:
     last_commit_date: str
 
 
-def select_update_branch(current_branch: str, main_branch: str, candidates: list[str], has_remote: bool) -> str:
-    if current_branch not in {main_branch, "HEAD"} and has_remote:
+def select_update_branch(current_branch: str, main_branch: str, has_remote: bool) -> str:
+    if current_branch != "HEAD" and has_remote:
         return current_branch
-    if current_branch not in {main_branch, "HEAD"} and not has_remote:
-        return main_branch
-    if candidates:
-        return candidates[0]
     return main_branch
 
 
@@ -31,20 +27,6 @@ class UpdaterService:
         self.remote_name = remote_name
         self.main_branch = main_branch
         self.logger = logger
-
-    def _candidate_branches(self) -> list[str]:
-        remote_raw = run_git(self.repo_root, ["branch", "-r", "--format=%(refname:short)"])
-        names: list[str] = []
-        prefix = f"{self.remote_name}/"
-        for branch in remote_raw.splitlines():
-            clean = branch.strip()
-            if not clean or clean.endswith("/HEAD"):
-                continue
-            if clean.startswith(prefix):
-                clean = clean.removeprefix(prefix)
-            if clean not in {self.main_branch} and clean not in names:
-                names.append(clean)
-        return sorted(names)
 
     def _remote_branch_exists(self, branch_name: str) -> bool:
         refs = run_git(self.repo_root, ["ls-remote", "--heads", self.remote_name, branch_name])
@@ -62,7 +44,7 @@ class UpdaterService:
     def update_repo(self) -> RepoStatus:
         run_git(self.repo_root, ["fetch", "--all", "--prune"])
         current = run_git(self.repo_root, ["rev-parse", "--abbrev-ref", "HEAD"])
-        target = select_update_branch(current, self.main_branch, self._candidate_branches(), self._remote_branch_exists(current))
+        target = select_update_branch(current, self.main_branch, self._remote_branch_exists(current))
         run_git(self.repo_root, ["checkout", target])
         if self._remote_branch_exists(target):
             run_git(self.repo_root, ["pull", "--ff-only", self.remote_name, target])
