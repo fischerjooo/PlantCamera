@@ -83,6 +83,7 @@ def test_captured_frames_are_rotated_left(server):
     frame = next((server["media_dir"] / "images").glob("frame_*.jpg"))
     payload = frame.read_bytes()
     assert b"ROTATE_LEFT_90=1" in payload
+    assert b"NORMALIZED_FULL_HD=1920x1080" in payload
 
 
 def test_delete_all_timelapse_images_button_endpoint(server):

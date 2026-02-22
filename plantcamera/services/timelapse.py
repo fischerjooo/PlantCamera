@@ -31,6 +31,7 @@ class TimelapseService:
         capture_photo: Callable[[Path], None],
         rotate_image_left: Callable[[Path], None],
         estimate_black_ratio: Callable[[Path], float | None],
+        normalize_image_full_hd: Callable[[Path], None],
         encode_timelapse: Callable[[Path, Path, int, str], None],
         list_encoders: Callable[[], set[str]],
         capture_interval_seconds: int,
@@ -47,6 +48,7 @@ class TimelapseService:
         self.capture_photo = capture_photo
         self.rotate_image_left = rotate_image_left
         self.estimate_black_ratio = estimate_black_ratio
+        self.normalize_image_full_hd = normalize_image_full_hd
         self.encode_timelapse = encode_timelapse
         self.list_encoders = list_encoders
         self.capture_interval = timedelta(seconds=capture_interval_seconds)
@@ -112,6 +114,7 @@ class TimelapseService:
         if not error:
             try:
                 self.rotate_image_left(frame)
+                self.normalize_image_full_hd(frame)
                 black_ratio = self.estimate_black_ratio(frame)
                 if black_ratio is not None and black_ratio > 0.90:
                     frame.unlink(missing_ok=True)

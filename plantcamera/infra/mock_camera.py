@@ -41,6 +41,12 @@ class CameraSimulator:
         payload = image_path.read_bytes()
         image_path.write_bytes(payload + b"ROTATE_LEFT_90=1\n")
 
+
+    def normalize_image_full_hd(self, image_path: Path) -> None:
+        payload = image_path.read_bytes()
+        # Marker used by tests; simulator does not generate real pixels.
+        image_path.write_bytes(payload + b"NORMALIZED_FULL_HD=1920x1080\n")
+
     def estimate_black_ratio(self, image_path: Path) -> float | None:
         with self._lock:
             return self._black_ratio_by_file.get(str(image_path))
