@@ -15,6 +15,22 @@ class RepoStatus:
     last_commit_date: str
 
 
+def parse_candidate_branches(remote_raw: str, remote_name: str, main_branch: str) -> list[str]:
+    names: list[str] = []
+    prefix = f"{remote_name}/"
+    for raw_ref in remote_raw.splitlines():
+        clean = raw_ref.strip()
+        if not clean or clean.endswith("/HEAD") or not clean.startswith(prefix):
+            continue
+        branch_name = clean.removeprefix(prefix)
+        if not branch_name or "/" not in clean:
+            continue
+        if branch_name in {main_branch, remote_name} or branch_name in names:
+            continue
+        names.append(branch_name)
+    return sorted(names)
+
+
 def select_update_branch(current_branch: str, main_branch: str, candidates: list[str], has_remote: bool) -> str:
     if current_branch not in {main_branch, "HEAD"} and has_remote:
         return current_branch
@@ -34,17 +50,7 @@ class UpdaterService:
 
     def _candidate_branches(self) -> list[str]:
         remote_raw = run_git(self.repo_root, ["branch", "-r", "--format=%(refname:short)"])
-        names: list[str] = []
-        prefix = f"{self.remote_name}/"
-        for branch in remote_raw.splitlines():
-            clean = branch.strip()
-            if not clean or clean.endswith("/HEAD"):
-                continue
-            if clean.startswith(prefix):
-                clean = clean.removeprefix(prefix)
-            if clean not in {self.main_branch} and clean not in names:
-                names.append(clean)
-        return sorted(names)
+        return parse_candidate_branches(remote_raw, self.remote_name, self.main_branch)
 
     def _remote_branch_exists(self, branch_name: str) -> bool:
         refs = run_git(self.repo_root, ["ls-remote", "--heads", self.remote_name, branch_name])
@@ -63,9 +69,15 @@ class UpdaterService:
         run_git(self.repo_root, ["fetch", "--all", "--prune"])
         current = run_git(self.repo_root, ["rev-parse", "--abbrev-ref", "HEAD"])
         target = select_update_branch(current, self.main_branch, self._candidate_branches(), self._remote_branch_exists(current))
-        run_git(self.repo_root, ["checkout", target])
+
         if self._remote_branch_exists(target):
-            run_git(self.repo_root, ["pull", "--ff-only", self.remote_name, target])
+            run_git(self.repo_root, ["checkout", "-B", target, f"{self.remote_name}/{target}"])
+            run_git(self.repo_root, ["reset", "--hard", f"{self.remote_name}/{target}"])
+        else:
+            run_git(self.repo_root, ["checkout", "-f", target])
+            run_git(self.repo_root, ["reset", "--hard", "HEAD"])
+
+        run_git(self.repo_root, ["clean", "-fd"])
         self.logger(f"Update completed on branch {target}")
         return self.get_status()
 
