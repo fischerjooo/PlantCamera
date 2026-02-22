@@ -6,7 +6,7 @@
   <title>PlantCamera Dashboard</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; background: #f2f4f8; color: #1f2937; }
-    main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    main { max-width: 1100px; margin: 0 auto; padding: 12px; }
     section { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
     .notice { background: #dbeafe; border: 1px solid #93c5fd; padding: 10px; border-radius: 6px; }
     .meta { margin: 5px 0; color: #374151; }
@@ -23,6 +23,17 @@
     th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; }
     .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     a { color: #2563eb; text-decoration: none; }
+    @media (max-width: 640px) {
+      main { padding: 8px; }
+      section { padding: 10px; margin-bottom: 10px; }
+      button { width: 100%; }
+      table, thead, tbody, th, td, tr { display: block; }
+      th { display: none; }
+      td { border: none; padding: 6px 0; }
+      tr { border-bottom: 1px solid #e5e7eb; padding: 6px 0; }
+      .actions { flex-direction: column; align-items: stretch; }
+      .actions a, .actions form { width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -45,6 +56,7 @@
       <p class="meta">Capture interval: $capture_interval_minutes minutes</p>
       <p class="meta">Session duration (image count): $session_image_count images</p>
       <form method="post" action="/capture-now"><button type="submit">Take timelapse photo now</button></form>
+      <form method="post" action="/delete-all-images"><button type="submit" class="danger">Delete all timelapse images</button></form>
     </section>
 
     <section>

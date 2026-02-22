@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from http import HTTPStatus
+import json
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from plantcamera.infra.git_cli import GitCommandError
@@ -20,6 +21,18 @@ def dispatch(handler, method: str, raw_path: str) -> None:
         handler.send_response(HTTPStatus.OK)
         handler.end_headers()
         app.shutdown_async()
+        return
+
+    if app.test_mode and method == "POST" and path == "/__camera":
+        length = int(handler.headers.get("Content-Length", "0"))
+        payload = handler.rfile.read(length) if length else b"{}"
+        data = json.loads(payload.decode("utf-8"))
+        app.camera_simulator.configure(
+            black_ratio=data.get("black_ratio"),
+            fail_next_capture=data.get("fail_next_capture"),
+        )
+        body = json.dumps(app.camera_simulator.status()).encode("utf-8")
+        handler.send_bytes(body, "application/json")
         return
 
     if method == "GET" and path == "/":
@@ -69,6 +82,11 @@ def dispatch(handler, method: str, raw_path: str) -> None:
     if method == "POST" and path == "/convert-now":
         ok, message = app.timelapse.trigger_convert_now()
         handler.redirect_with_notice(ok, message)
+        return
+
+    if method == "POST" and path == "/delete-all-images":
+        deleted = app.timelapse.delete_all_frames()
+        handler.redirect_with_notice(True, f"Deleted {deleted} timelapse images.")
         return
 
     if method == "POST" and path == app.config.update_endpoint:

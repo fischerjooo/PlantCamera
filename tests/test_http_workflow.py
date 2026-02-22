@@ -3,11 +3,18 @@ from __future__ import annotations
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import time
+import json
 
 
 def _post(url: str):
     req = Request(url, method="POST")
     return urlopen(req)
+
+
+def _post_json(url: str, payload: dict):
+    req = Request(url, method="POST", data=json.dumps(payload).encode("utf-8"), headers={"Content-Type": "application/json"})
+    with urlopen(req) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def _extract_video_name_from_dashboard(body: str) -> str:
@@ -34,6 +41,8 @@ def test_dashboard_available_over_http(server):
     assert response.status == 200
     assert "PlantCamera Dashboard" in body
     assert "Images captured:" in body
+    assert "Capture interval: 15 minutes" in body
+    assert "Delete all timelapse images" in body
 
 
 def test_capture_now_creates_frame_and_reports_notice(server):
@@ -44,6 +53,48 @@ def test_capture_now_creates_frame_and_reports_notice(server):
         body = response.read().decode("utf-8")
 
     assert "Images captured: 1" in body
+
+
+def test_camera_simulator_is_controllable_via_http(server):
+    state = _post_json(f"{server['base_url']}/__camera", {"black_ratio": 0.95, "fail_next_capture": True})
+    assert state["black_ratio"] == 0.95
+    assert state["fail_next_capture"] is True
+
+    reset = _post_json(f"{server['base_url']}/__camera", {"black_ratio": 0.0, "fail_next_capture": False})
+    assert reset["black_ratio"] == 0.0
+    assert reset["fail_next_capture"] is False
+
+
+def test_black_frames_are_discarded_after_capture(server):
+    _post_json(f"{server['base_url']}/__camera", {"black_ratio": 0.95})
+    _post(f"{server['base_url']}/capture-now").read()
+
+    with urlopen(f"{server['base_url']}/", timeout=3) as response:
+        body = response.read().decode("utf-8")
+
+    assert "Images captured: 0" in body
+    assert "Discarded frame" in body
+
+
+def test_captured_frames_are_rotated_left(server):
+    _post_json(f"{server['base_url']}/__camera", {"black_ratio": 0.0})
+    _post(f"{server['base_url']}/capture-now").read()
+
+    frame = next((server["media_dir"] / "images").glob("frame_*.jpg"))
+    payload = frame.read_bytes()
+    assert b"ROTATE_LEFT_90=1" in payload
+
+
+def test_delete_all_timelapse_images_button_endpoint(server):
+    _post(f"{server['base_url']}/capture-now").read()
+    _post(f"{server['base_url']}/capture-now").read()
+
+    with _post(f"{server['base_url']}/delete-all-images") as response:
+        assert response.url.startswith(f"{server['base_url']}/?notice=OK%3A")
+
+    with urlopen(f"{server['base_url']}/", timeout=3) as dashboard:
+        body = dashboard.read().decode("utf-8")
+    assert "Images captured: 0" in body
 
 
 def test_convert_now_creates_video_and_clears_frames(server):
