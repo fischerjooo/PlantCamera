@@ -10,11 +10,12 @@ from plantcamera.web.routes import dispatch
 
 
 class WebApplication:
-    def __init__(self, config, timelapse, updater, test_mode: bool = False) -> None:
+    def __init__(self, config, timelapse, updater, test_mode: bool = False, camera_simulator=None) -> None:
         self.config = config
         self.timelapse = timelapse
         self.updater = updater
         self.test_mode = test_mode
+        self.camera_simulator = camera_simulator
         self._logs: deque[str] = deque(maxlen=100)
         self.server: ThreadingHTTPServer | None = None
 

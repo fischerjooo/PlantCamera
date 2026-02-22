@@ -4,7 +4,8 @@ from pathlib import Path
 
 from plantcamera.config import AppConfig, load_config
 from plantcamera.infra.camera_termux import capture_photo
-from plantcamera.infra.ffmpeg import encode_timelapse, list_encoders
+from plantcamera.infra.ffmpeg import encode_timelapse, estimate_black_ratio, list_encoders, normalize_image_full_hd, rotate_image_left
+from plantcamera.infra.mock_camera import CameraSimulator
 from plantcamera.services.timelapse import TimelapseService
 from plantcamera.services.updater import UpdaterService
 from plantcamera.web.server import WebApplication, run_server
@@ -12,9 +13,17 @@ from plantcamera.web.server import WebApplication, run_server
 
 def build_app(config: AppConfig, repo_root: Path, test_mode: bool = False) -> WebApplication:
     app_logger = print
+    camera_simulator = CameraSimulator() if test_mode else None
+    capture = camera_simulator.capture_photo if camera_simulator else capture_photo
+    rotate = camera_simulator.rotate_image_left if camera_simulator else rotate_image_left
+    black_ratio = camera_simulator.estimate_black_ratio if camera_simulator else estimate_black_ratio
+    normalize = camera_simulator.normalize_image_full_hd if camera_simulator else normalize_image_full_hd
     timelapse = TimelapseService(
         base_media_dir=config.media_base_dir,
-        capture_photo=capture_photo,
+        capture_photo=capture,
+        rotate_image_left=rotate,
+        estimate_black_ratio=black_ratio,
+        normalize_image_full_hd=normalize,
         encode_timelapse=encode_timelapse,
         list_encoders=list_encoders,
         capture_interval_seconds=config.capture_interval_seconds,
@@ -30,7 +39,7 @@ def build_app(config: AppConfig, repo_root: Path, test_mode: bool = False) -> We
         main_branch=config.update_branch,
         logger=lambda m: app_logger(f"[updater] {m}"),
     )
-    return WebApplication(config=config, timelapse=timelapse, updater=updater, test_mode=test_mode)
+    return WebApplication(config=config, timelapse=timelapse, updater=updater, test_mode=test_mode, camera_simulator=camera_simulator)
 
 
 def run(

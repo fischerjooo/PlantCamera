@@ -29,6 +29,9 @@ class TimelapseService:
         self,
         base_media_dir: Path,
         capture_photo: Callable[[Path], None],
+        rotate_image_left: Callable[[Path], None],
+        estimate_black_ratio: Callable[[Path], float | None],
+        normalize_image_full_hd: Callable[[Path], None],
         encode_timelapse: Callable[[Path, Path, int, str], None],
         list_encoders: Callable[[], set[str]],
         capture_interval_seconds: int,
@@ -43,6 +46,9 @@ class TimelapseService:
         self.videos_dir = base_media_dir / "videos"
         self.live_image_path = base_media_dir / "live_view.jpg"
         self.capture_photo = capture_photo
+        self.rotate_image_left = rotate_image_left
+        self.estimate_black_ratio = estimate_black_ratio
+        self.normalize_image_full_hd = normalize_image_full_hd
         self.encode_timelapse = encode_timelapse
         self.list_encoders = list_encoders
         self.capture_interval = timedelta(seconds=capture_interval_seconds)
@@ -104,13 +110,28 @@ class TimelapseService:
     def _capture_frame(self, timestamp: datetime) -> None:
         frame = self.frames_dir / f"{FRAME_PREFIX}{timestamp.strftime(TIMESTAMP_FORMAT)}.jpg"
         error = self._take_photo(frame)
+        discarded = False
+        if not error:
+            try:
+                self.rotate_image_left(frame)
+                self.normalize_image_full_hd(frame)
+                black_ratio = self.estimate_black_ratio(frame)
+                if black_ratio is not None and black_ratio > 0.90:
+                    frame.unlink(missing_ok=True)
+                    discarded = True
+                    self._log(f"Discarded frame {frame.name} because black ratio is {black_ratio:.0%}")
+            except Exception as rotate_error:
+                error = f"post-processing failed: {rotate_error}"
         with self._lock:
             if error:
                 self._capture_status.last_capture_error = error
             else:
                 self._capture_status.last_capture_error = None
                 self._capture_status.last_capture_timestamp = timestamp
-        self._log(f"Captured timelapse frame {frame.name}" if not error else f"Timelapse capture error: {error}")
+        if error:
+            self._log(f"Timelapse capture error: {error}")
+        elif not discarded:
+            self._log(f"Captured timelapse frame {frame.name}")
 
     def _capture_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -246,3 +267,11 @@ class TimelapseService:
     def delete_video(self, name: str) -> None:
         self.media.delete_video(name)
         self._log(f"Deleted video {name}")
+
+    def delete_all_frames(self) -> int:
+        deleted = 0
+        for frame in self._collected_images():
+            frame.unlink(missing_ok=True)
+            deleted += 1
+        self._log(f"Deleted {deleted} collected timelapse images")
+        return deleted

@@ -11,7 +11,7 @@ class AppConfig:
     host: str = "0.0.0.0"
     port: int = 8000
     media_base_dir: Path = Path("/sdcard/DCIM/PlantCamera")
-    capture_interval_seconds: int = 30 * 60
+    capture_interval_seconds: int = 15 * 60
     session_image_count: int = 48
     live_view_interval_seconds: int = 5
     timelapse_fps: int = 24
@@ -32,7 +32,7 @@ def load_config(argv: list[str] | None = None) -> AppConfig:
     parser.add_argument(
         "--capture-interval-seconds",
         type=int,
-        default=int(os.getenv("PLANTCAMERA_CAPTURE_INTERVAL_SECONDS", str(30 * 60))),
+        default=int(os.getenv("PLANTCAMERA_CAPTURE_INTERVAL_SECONDS", str(15 * 60))),
     )
     parser.add_argument(
         "--session-image-count",

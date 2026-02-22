@@ -15,6 +15,84 @@ def list_encoders() -> set[str]:
     return encoders
 
 
+def rotate_image_left(image_path: Path) -> None:
+    temporary_output = image_path.with_suffix(".rotated.jpg")
+    temporary_output.unlink(missing_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-y",
+            "-i",
+            str(image_path),
+            "-vf",
+            "transpose=2",
+            str(temporary_output),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    temporary_output.replace(image_path)
+
+
+def estimate_black_ratio(image_path: Path) -> float | None:
+    filtergraph = f"movie={image_path},blackframe=amount=90:threshold=32"
+    try:
+        probe = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                filtergraph,
+                "-show_entries",
+                "frame_tags=lavfi.blackframe.pblack",
+                "-of",
+                "default=nw=1:nk=1",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except Exception:
+        return None
+    values = [line.strip() for line in probe.stdout.splitlines() if line.strip()]
+    if not values:
+        return 0.0
+    try:
+        return float(values[-1]) / 100.0
+    except ValueError:
+        return None
+
+
+def normalize_image_full_hd(image_path: Path, quality: int = 6) -> None:
+    """
+    Convert image to exactly 1920x1080 (Full HD) and recompress it to reduce size.
+    Preserves source aspect ratio by scaling to fit and padding with black bars.
+    """
+    temporary_output = image_path.with_suffix(".fhd.jpg")
+    temporary_output.unlink(missing_ok=True)
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-y",
+            "-i",
+            str(image_path),
+            "-vf",
+            "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black",
+            "-q:v",
+            str(quality),
+            str(temporary_output),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    temporary_output.replace(image_path)
+
+
 def _probe_first_image_resolution(image_glob: Path) -> tuple[int, int] | None:
     """
     Uses ffprobe to get the resolution of the first image matched by the glob.
