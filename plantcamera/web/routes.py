@@ -8,6 +8,9 @@ from plantcamera.infra.git_cli import GitCommandError
 from plantcamera.web.views import render_dashboard
 
 
+VALID_PAGES = {"Live", "TimeLapse", "Config", "App"}
+
+
 def dispatch(handler, method: str, raw_path: str) -> None:
     parsed = urlparse(raw_path)
     path = parsed.path
@@ -43,7 +46,11 @@ def dispatch(handler, method: str, raw_path: str) -> None:
         except GitCommandError as error:
             repo_branch = "Branch: unknown"
             repo_commit = f"Git error: {error}"
-        notice = parse_qs(parsed.query).get("notice", [None])[0]
+        query = parse_qs(parsed.query)
+        notice = query.get("notice", [None])[0]
+        active_page = query.get("page", ["Live"])[0]
+        if active_page not in VALID_PAGES:
+            active_page = "Live"
         page = render_dashboard(
             update_endpoint=app.config.update_endpoint,
             repo_branch_text=repo_branch,
@@ -52,6 +59,7 @@ def dispatch(handler, method: str, raw_path: str) -> None:
             videos=app.timelapse.list_videos(),
             logs=app.timelapse.get_logs() + app.recent_logs(),
             notice=notice,
+            active_page=active_page,
         )
         handler.send_bytes(page, "text/html; charset=utf-8")
         return
@@ -87,6 +95,25 @@ def dispatch(handler, method: str, raw_path: str) -> None:
     if method == "POST" and path == "/delete-all-images":
         deleted = app.timelapse.delete_all_frames()
         handler.redirect_with_notice(True, f"Deleted {deleted} timelapse images.")
+        return
+
+    if method == "POST" and path == "/merge-videos":
+        ok, message = app.timelapse.trigger_merge_videos()
+        handler.redirect_with_notice(ok, message)
+        return
+
+    if method == "POST" and path == "/config/save":
+        length = int(handler.headers.get("Content-Length", "0"))
+        payload = handler.rfile.read(length) if length else b""
+        data = parse_qs(payload.decode("utf-8"))
+        ok, message = app.timelapse.update_runtime_config(
+            capture_interval_seconds=int(data.get("capture_interval_seconds", ["900"])[0]),
+            rotation_degrees=int(data.get("rotation_degrees", ["90"])[0]),
+            session_image_count=int(data.get("session_image_count", ["48"])[0]),
+            black_detection_percentage=float(data.get("black_detection_percentage", ["90"])[0]),
+        )
+        prefix = "OK" if ok else "ERROR"
+        handler.redirect(f"/?page=Config&notice={quote(f'{prefix}: {message}')}")
         return
 
     if method == "POST" and path == app.config.update_endpoint:

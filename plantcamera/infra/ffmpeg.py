@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -274,5 +275,51 @@ def encode_timelapse(
             f"Generated video file is too small ({size} bytes). "
             "Conversion likely failed; check ffmpeg output and captured frames."
         )
+
+    temporary_output.replace(output_file)
+
+
+def merge_videos(video_files: list[Path], output_file: Path) -> None:
+    if not video_files:
+        raise RuntimeError("No videos provided for merge.")
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    temporary_output = output_file.with_suffix(".tmp.mp4")
+    temporary_output.unlink(missing_ok=True)
+
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt", delete=False) as concat_file:
+        concat_path = Path(concat_file.name)
+        for video in video_files:
+            concat_file.write(f"file '{video.as_posix()}'\n")
+
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(concat_path),
+                "-c",
+                "copy",
+                str(temporary_output),
+            ],
+            check=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as error:
+        temporary_output.unlink(missing_ok=True)
+        message = (error.stderr or b"").decode("utf-8", errors="replace").strip() or str(error)
+        raise RuntimeError(f"Video merge failed: {message}") from error
+    finally:
+        concat_path.unlink(missing_ok=True)
+
+    if not temporary_output.exists() or temporary_output.stat().st_size < 256:
+        temporary_output.unlink(missing_ok=True)
+        raise RuntimeError("Merged video file is missing or too small.")
 
     temporary_output.replace(output_file)

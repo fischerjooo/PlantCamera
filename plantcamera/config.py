@@ -16,6 +16,8 @@ class AppConfig:
     live_view_interval_seconds: int = 5
     timelapse_fps: int = 24
     timelapse_codec: str = "libx264"
+    rotation_degrees: int = 90
+    black_detection_percentage: float = 90.0
     update_remote: str = "origin"
     update_branch: str = "main"
     update_endpoint: str = "/update"
@@ -45,6 +47,8 @@ def load_config(argv: list[str] | None = None) -> AppConfig:
         default=int(os.getenv("PLANTCAMERA_OUTPUT_FPS", "24")),
     )
     parser.add_argument("--timelapse-codec", default=os.getenv("PLANTCAMERA_VIDEO_CODEC", "libx264"))
+    parser.add_argument("--rotation-degrees", type=int, default=int(os.getenv("PLANTCAMERA_ROTATION_DEGREES", "90")))
+    parser.add_argument("--black-detection-percentage", type=float, default=float(os.getenv("PLANTCAMERA_BLACK_DETECTION_PERCENTAGE", "90")))
     parser.add_argument("--update-remote", default=os.getenv("PLANTCAMERA_UPDATE_REMOTE", "origin"))
     parser.add_argument("--update-branch", default=os.getenv("PLANTCAMERA_UPDATE_BRANCH", "main"))
     parser.add_argument("--update-endpoint", default=os.getenv("PLANTCAMERA_UPDATE_ENDPOINT", "/update"))
@@ -58,6 +62,8 @@ def load_config(argv: list[str] | None = None) -> AppConfig:
         session_image_count=args.session_image_count,
         timelapse_fps=args.timelapse_fps,
         timelapse_codec=args.timelapse_codec,
+        rotation_degrees=args.rotation_degrees,
+        black_detection_percentage=args.black_detection_percentage,
         update_remote=args.update_remote,
         update_branch=args.update_branch,
         update_endpoint=args.update_endpoint,

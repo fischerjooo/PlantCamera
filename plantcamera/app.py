@@ -4,7 +4,7 @@ from pathlib import Path
 
 from plantcamera.config import AppConfig, load_config
 from plantcamera.infra.camera_termux import capture_photo
-from plantcamera.infra.ffmpeg import encode_timelapse, estimate_black_ratio, list_encoders, normalize_image_full_hd, rotate_image_left
+from plantcamera.infra.ffmpeg import encode_timelapse, estimate_black_ratio, list_encoders, merge_videos, normalize_image_full_hd, rotate_image_left
 from plantcamera.infra.mock_camera import CameraSimulator
 from plantcamera.services.timelapse import TimelapseService
 from plantcamera.services.updater import UpdaterService
@@ -25,6 +25,7 @@ def build_app(config: AppConfig, repo_root: Path, test_mode: bool = False) -> We
         estimate_black_ratio=black_ratio,
         normalize_image_full_hd=normalize,
         encode_timelapse=encode_timelapse,
+        merge_videos=merge_videos,
         list_encoders=list_encoders,
         capture_interval_seconds=config.capture_interval_seconds,
         live_view_interval_seconds=config.live_view_interval_seconds,
@@ -32,6 +33,9 @@ def build_app(config: AppConfig, repo_root: Path, test_mode: bool = False) -> We
         fps=config.timelapse_fps,
         codec=config.timelapse_codec,
         logger=lambda m: app_logger(f"[timelapse] {m}"),
+        config_path=config.media_base_dir / "config.json",
+        rotation_degrees=config.rotation_degrees,
+        black_detection_percentage=config.black_detection_percentage,
     )
     updater = UpdaterService(
         repo_root=repo_root,
