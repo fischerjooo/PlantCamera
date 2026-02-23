@@ -45,7 +45,7 @@ def render_dashboard(
         "<tr>"
         f"<td>{html.escape(v)}</td>"
         "<td><div class='actions'>"
-        f"<a class='btn watch-btn' href='/images/{quote(v)}'>Watch</a>"
+        f"<a class='btn watch-btn' href='/images/{quote(v)}'>View</a>"
         f"<a class='btn download-btn' href='/download-image/{quote(v)}'>Download</a>"
         f"<form method='post' action='/delete-image/{quote(v)}'><button type='submit' class='danger'>Delete</button></form>"
         "</div></td>"

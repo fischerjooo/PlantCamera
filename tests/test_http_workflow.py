@@ -95,6 +95,7 @@ def test_video_and_photo_actions_use_colored_watch_download_buttons(server):
         image_body = response.read().decode("utf-8")
 
     assert "href='/images/" in image_body
+    assert ">View</a>" in image_body
     assert "class='btn watch-btn'" in image_body
     assert "class='btn download-btn'" in image_body
 
@@ -110,7 +111,7 @@ def test_video_and_photo_actions_use_colored_watch_download_buttons(server):
 
 def test_capture_now_creates_image_with_simplified_name(server):
     with _post(f"{server['base_url']}/capture-now") as response:
-        assert response.url.startswith(f"{server['base_url']}/?notice=OK%3A")
+        assert response.url.startswith(f"{server['base_url']}/?page=TimeLapse&notice=OK%3A")
 
     files = _list_image_files(server)
     assert len(files) == 1
@@ -178,7 +179,7 @@ def test_delete_all_timelapse_images_button_endpoint(server):
     _post(f"{server['base_url']}/capture-now").read()
 
     with _post(f"{server['base_url']}/delete-all-images") as response:
-        assert response.url.startswith(f"{server['base_url']}/?notice=OK%3A")
+        assert response.url.startswith(f"{server['base_url']}/?page=TimeLapse&notice=OK%3A")
 
     with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as dashboard:
         body = dashboard.read().decode("utf-8")
@@ -189,7 +190,7 @@ def test_convert_now_creates_video_with_simplified_name_and_clears_images(server
     _post(f"{server['base_url']}/capture-now").read()
 
     with _post(f"{server['base_url']}/convert-now") as response:
-        assert response.url.startswith(f"{server['base_url']}/?notice=OK%3A")
+        assert response.url.startswith(f"{server['base_url']}/?page=TimeLapse&notice=OK%3A")
 
     video_files = _list_video_files(server)
     assert len(video_files) == 1
@@ -267,7 +268,7 @@ def test_merge_videos_merges_in_chronological_order_and_deletes_sources(server):
     assert len(before) == 2
 
     with _post(f"{server['base_url']}/merge-videos") as response:
-        assert response.url.startswith(f"{server['base_url']}/?notice=OK%3A")
+        assert response.url.startswith(f"{server['base_url']}/?page=TimeLapse&notice=OK%3A")
 
     after = _list_video_files(server)
     assert len(after) == 1

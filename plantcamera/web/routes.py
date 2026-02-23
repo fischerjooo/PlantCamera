@@ -89,22 +89,22 @@ def dispatch(handler, method: str, raw_path: str) -> None:
 
     if method == "POST" and path == "/capture-now":
         ok, message = app.timelapse.trigger_capture_now()
-        handler.redirect_with_notice(ok, message)
+        handler.redirect_with_notice(ok, message, page="TimeLapse")
         return
 
     if method == "POST" and path == "/convert-now":
         ok, message = app.timelapse.trigger_convert_now()
-        handler.redirect_with_notice(ok, message)
+        handler.redirect_with_notice(ok, message, page="TimeLapse")
         return
 
     if method == "POST" and path == "/delete-all-images":
         deleted = app.timelapse.delete_all_frames()
-        handler.redirect_with_notice(True, f"Deleted {deleted} timelapse images.")
+        handler.redirect_with_notice(True, f"Deleted {deleted} timelapse images.", page="TimeLapse")
         return
 
     if method == "POST" and path == "/merge-videos":
         ok, message = app.timelapse.trigger_merge_videos()
-        handler.redirect_with_notice(ok, message)
+        handler.redirect_with_notice(ok, message, page="TimeLapse")
         return
 
     if method == "POST" and path == "/config/save":
@@ -122,7 +122,7 @@ def dispatch(handler, method: str, raw_path: str) -> None:
         return
 
     if method == "POST" and path == app.config.update_endpoint:
-        handler.redirect("/")
+        handler.redirect("/?page=App")
         app.run_update_async()
         return
 
@@ -132,7 +132,7 @@ def dispatch(handler, method: str, raw_path: str) -> None:
         except (ValueError, FileNotFoundError):
             handler.send_error(HTTPStatus.NOT_FOUND, "Video not found")
             return
-        handler.redirect("/")
+        handler.redirect("/?page=TimeLapse")
         return
 
     if method == "POST" and path.startswith("/delete-image/"):
@@ -141,7 +141,7 @@ def dispatch(handler, method: str, raw_path: str) -> None:
         except (ValueError, FileNotFoundError):
             handler.send_error(HTTPStatus.NOT_FOUND, "Image not found")
             return
-        handler.redirect("/")
+        handler.redirect("/?page=TimeLapse")
         return
 
     handler.send_error(HTTPStatus.NOT_FOUND, "Not Found")

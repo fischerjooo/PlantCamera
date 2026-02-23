@@ -53,9 +53,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Location", location)
         self.end_headers()
 
-    def redirect_with_notice(self, ok: bool, message: str) -> None:
+    def redirect_with_notice(self, ok: bool, message: str, *, page: str | None = None) -> None:
         prefix = "OK" if ok else "ERROR"
-        self.redirect(f"/?notice={quote(f'{prefix}: {message}')}")
+        page_part = f"page={quote(page)}&" if page else ""
+        self.redirect(f"/?{page_part}notice={quote(f'{prefix}: {message}')}")
 
     def do_GET(self) -> None:  # noqa: N802
         dispatch(self, "GET", self.path)
