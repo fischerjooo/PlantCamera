@@ -18,8 +18,8 @@ if str(ROOT) not in sys.path:
 from src.webapp import run_web_server
 
 
-def _start_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ffmpeg_payload: bytes):
-    media_dir = tmp_path / "media"
+def _start_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ffmpeg_payload: bytes, *, media_dir: Path | None = None):
+    media_dir = media_dir or (tmp_path / "media")
     bin_dir = tmp_path / "bin"
     media_dir.mkdir(parents=True, exist_ok=True)
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -46,7 +46,16 @@ def _start_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ffmpeg_payloa
         "    raise SystemExit(0)\n"
         "output = Path(sys.argv[-1])\n"
         "output.parent.mkdir(parents=True, exist_ok=True)\n"
-        f"output.write_bytes({ffmpeg_payload!r})\n"
+        "if '-f' in sys.argv and 'concat' in sys.argv:\n"
+        "    list_file = Path(sys.argv[sys.argv.index('-i') + 1])\n"
+        "    items = []\n"
+        "    for line in list_file.read_text(encoding='utf-8').splitlines():\n"
+        "        if line.startswith(\"file '\") and line.endswith(\"'\"):\n"
+        "            items.append(Path(line[6:-1]).name)\n"
+        "    payload = ('MERGED:' + '|'.join(items)).encode('utf-8') * 30\n"
+        "    output.write_bytes(payload)\n"
+        "else:\n"
+        f"    output.write_bytes({ffmpeg_payload!r})\n"
     )
     ffmpeg.chmod(0o755)
 
@@ -109,3 +118,24 @@ def server_with_tiny_video(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     info = _start_server(tmp_path, monkeypatch, b"0" * 48)
     yield {"base_url": info["base_url"], "media_dir": info["media_dir"]}
     _stop_server(info["base_url"], info["thread"])
+
+
+@pytest.fixture
+def restartable_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    state: dict[str, object] = {}
+
+    def _start():
+        info = _start_server(tmp_path, monkeypatch, b"FAKE-MP4" * 40, media_dir=state.get("media_dir"))
+        state["base_url"] = info["base_url"]
+        state["media_dir"] = info["media_dir"]
+        state["thread"] = info["thread"]
+
+    def _restart() -> dict[str, object]:
+        _stop_server(state["base_url"], state["thread"])
+        _start()
+        return {"base_url": state["base_url"], "media_dir": state["media_dir"]}
+
+    _start()
+    result = {"base_url": state["base_url"], "media_dir": state["media_dir"], "restart": _restart}
+    yield result
+    _stop_server(state["base_url"], state["thread"])

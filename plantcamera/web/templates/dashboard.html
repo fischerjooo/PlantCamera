@@ -6,6 +6,10 @@
   <title>PlantCamera Dashboard</title>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; background: #f2f4f8; color: #1f2937; }
+    nav { background: #0f172a; padding: 12px; }
+    .nav-inner { max-width: 1100px; margin: 0 auto; display: flex; gap: 10px; align-items: center; }
+    .nav-link { color: #cbd5e1; text-decoration: none; font-weight: 700; padding: 8px 12px; border-radius: 6px; }
+    .nav-link.active, .nav-link:hover { background: #1d4ed8; color: #fff; }
     main { max-width: 1100px; margin: 0 auto; padding: 12px; }
     section { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 14px; margin-bottom: 14px; }
     .notice { background: #dbeafe; border: 1px solid #93c5fd; padding: 10px; border-radius: 6px; }
@@ -15,66 +19,56 @@
     .logs { background: #0f172a; color: #e2e8f0; padding: 10px; border-radius: 8px; max-height: 250px; overflow: auto; white-space: pre-wrap; font-size: 13px; }
     img { width: 100%; max-width: 960px; border-radius: 8px; border: 1px solid #d1d5db; background: #fff; display: block; margin: 0 auto; transform: rotate(-90deg); transform-origin: center; }
     .toolbar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-    button { border: none; padding: 8px 14px; border-radius: 6px; background: #22c55e; color: #06240f; font-weight: 700; cursor: pointer; }
-    button:hover { background: #16a34a; color: #fff; }
+    button, .btn { border: none; padding: 8px 14px; border-radius: 6px; background: #22c55e; color: #06240f; font-weight: 700; cursor: pointer; text-decoration: none; display: inline-block; }
+    button:hover, .btn:hover { opacity: 0.9; color: #fff; }
     .danger { background: #dc2626; color: #fff; }
     .danger:hover { background: #b91c1c; }
+    .watch-btn { background: #2563eb; color: #fff; }
+    .download-btn { background: #16a34a; color: #fff; }
     table { width: 100%; border-collapse: collapse; }
     th, td { border-bottom: 1px solid #e5e7eb; padding: 8px; text-align: left; }
     .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    a { color: #2563eb; text-decoration: none; }
+    .config-form { max-width: 560px; display: grid; gap: 10px; }
+    .config-form label { font-weight: 700; }
+    .config-form input, .config-form select { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
     @media (max-width: 640px) {
       main { padding: 8px; }
+      .nav-inner { flex-wrap: wrap; }
       section { padding: 10px; margin-bottom: 10px; }
-      button { width: 100%; }
+      button, .btn { text-align: center; }
       table, thead, tbody, th, td, tr { display: block; }
       th { display: none; }
       td { border: none; padding: 6px 0; }
       tr { border-bottom: 1px solid #e5e7eb; padding: 6px 0; }
-      .actions { flex-direction: column; align-items: stretch; }
-      .actions a, .actions form { width: 100%; }
+      .actions { flex-direction: row; align-items: center; }
+      .actions a, .actions form { width: auto; }
     }
   </style>
 </head>
 <body>
+  <nav>
+    <div class="nav-inner">
+      <a class="nav-link $live_nav_class" href="/?page=Live">Live</a>
+      <a class="nav-link $timelapse_nav_class" href="/?page=TimeLapse">TimeLapse</a>
+      <a class="nav-link $config_nav_class" href="/?page=Config">Config</a>
+      <a class="nav-link $app_nav_class" href="/?page=App">App</a>
+    </div>
+  </nav>
   <main>
     $notice
 
-    <section>
-      <h2>Live View</h2>
-      <img id="liveView" src="/live.jpg?t=$now" alt="Live camera preview" />
-      $live_view_error
-      <p class="meta">Live view path: DCIM/PlantCamera/live_view.jpg</p>
-      <p class="meta">Last successful timelapse capture: <span class="ok">$last_capture</span></p>
-      $capture_error
-      $encode_error
-    </section>
-
-    <section>
-      <h2>Time lapse Management</h2>
-      <p class="meta">Images captured: $collected_images</p>
-      <p class="meta">Capture interval: $capture_interval_minutes minutes</p>
-      <p class="meta">Session duration (image count): $session_image_count images</p>
-      <form method="post" action="/capture-now"><button type="submit">Take timelapse photo now</button></form>
-      <form method="post" action="/delete-all-images"><button type="submit" class="danger">Delete all timelapse images</button></form>
-    </section>
-
-    <section>
-      <h2>Video Management</h2>
-      <form method="post" action="/convert-now"><button type="submit">Convert</button></form>
-      $videos_section
-    </section>
-
-    <section>
-      <h2>Application</h2>
-      <div class="toolbar">
-        <form method="post" action="$update_endpoint"><button type="submit">Update</button></form>
-        <div><p class="meta">$repo_branch</p><p class="meta">$repo_commit</p></div>
-      </div>
-      <h3>Logs (last 100)</h3>
-      <div class="logs">$log_lines</div>
-    </section>
+    $live_section
+    $timelapse_section
+    $config_section
+    $application_section
   </main>
-  <script>setInterval(function(){var img=document.getElementById('liveView');img.src='/live.jpg?t='+Date.now();},5000);</script>
+  <script>
+    setInterval(function(){
+      var img=document.getElementById('liveView');
+      if (img) {
+        img.src='/live.jpg?t='+Date.now();
+      }
+    },5000);
+  </script>
 </body>
 </html>
