@@ -57,6 +57,7 @@ def dispatch(handler, method: str, raw_path: str) -> None:
             repo_commit_text=repo_commit,
             status=app.timelapse.get_status(),
             videos=app.timelapse.list_videos(),
+            images=app.timelapse.list_images(),
             logs=app.timelapse.get_logs() + app.recent_logs(),
             notice=notice,
             active_page=active_page,
@@ -81,6 +82,10 @@ def dispatch(handler, method: str, raw_path: str) -> None:
         return _serve_video(handler, unquote(path.removeprefix("/videos/")), False)
     if method == "GET" and path.startswith("/download/"):
         return _serve_video(handler, unquote(path.removeprefix("/download/")), True)
+    if method == "GET" and path.startswith("/images/"):
+        return _serve_image(handler, unquote(path.removeprefix("/images/")), False)
+    if method == "GET" and path.startswith("/download-image/"):
+        return _serve_image(handler, unquote(path.removeprefix("/download-image/")), True)
 
     if method == "POST" and path == "/capture-now":
         ok, message = app.timelapse.trigger_capture_now()
@@ -130,6 +135,15 @@ def dispatch(handler, method: str, raw_path: str) -> None:
         handler.redirect("/")
         return
 
+    if method == "POST" and path.startswith("/delete-image/"):
+        try:
+            app.timelapse.delete_image(unquote(path.removeprefix("/delete-image/")))
+        except (ValueError, FileNotFoundError):
+            handler.send_error(HTTPStatus.NOT_FOUND, "Image not found")
+            return
+        handler.redirect("/")
+        return
+
     handler.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
 
@@ -142,6 +156,22 @@ def _serve_video(handler, name: str, as_attachment: bool) -> None:
     body = path.read_bytes()
     handler.send_response(HTTPStatus.OK)
     handler.send_header("Content-Type", "video/mp4")
+    if as_attachment:
+        handler.send_header("Content-Disposition", f"attachment; filename={path.name}")
+    handler.send_header("Content-Length", str(len(body)))
+    handler.end_headers()
+    handler.wfile.write(body)
+
+
+def _serve_image(handler, name: str, as_attachment: bool) -> None:
+    try:
+        path = handler.app.timelapse.get_image_path(name)
+    except (ValueError, FileNotFoundError):
+        handler.send_error(HTTPStatus.NOT_FOUND, "Image not found")
+        return
+    body = path.read_bytes()
+    handler.send_response(HTTPStatus.OK)
+    handler.send_header("Content-Type", "image/jpeg")
     if as_attachment:
         handler.send_header("Content-Disposition", f"attachment; filename={path.name}")
     handler.send_header("Content-Length", str(len(body)))

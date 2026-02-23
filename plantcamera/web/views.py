@@ -20,6 +20,7 @@ def render_dashboard(
     repo_commit_text: str,
     status: dict[str, str | int | float | None],
     videos: list[str],
+    images: list[str],
     logs: list[str],
     notice: str | None,
     active_page: str,
@@ -27,7 +28,7 @@ def render_dashboard(
     template = Template(TEMPLATE_PATH.read_text(encoding="utf-8"))
     safe_notice = f"<p class='notice'>{html.escape(notice)}</p>" if notice else ""
 
-    rows = "".join(
+    video_rows = "".join(
         "<tr>"
         f"<td>{html.escape(v)}</td>"
         "<td><div class='actions'>"
@@ -38,7 +39,20 @@ def render_dashboard(
         "</tr>"
         for v in videos
     )
-    videos_section = "<table><thead><tr><th>File</th><th>Actions</th></tr></thead><tbody>" + rows + "</tbody></table>" if rows else "<p class='meta'>No videos generated yet.</p>"
+    videos_section = "<table><thead><tr><th>File</th><th>Actions</th></tr></thead><tbody>" + video_rows + "</tbody></table>" if video_rows else "<p class='meta'>No videos generated yet.</p>"
+
+    image_rows = "".join(
+        "<tr>"
+        f"<td>{html.escape(v)}</td>"
+        "<td><div class='actions'>"
+        f"<a class='btn watch-btn' href='/images/{quote(v)}'>Watch</a>"
+        f"<a class='btn download-btn' href='/download-image/{quote(v)}'>Download</a>"
+        f"<form method='post' action='/delete-image/{quote(v)}'><button type='submit' class='danger'>Delete</button></form>"
+        "</div></td>"
+        "</tr>"
+        for v in images
+    )
+    images_section = "<table><thead><tr><th>File</th><th>Actions</th></tr></thead><tbody>" + image_rows + "</tbody></table>" if image_rows else "<p class='meta'>No timelapse images available.</p>"
 
     live_section = ""
     timelapse_section = ""
@@ -67,6 +81,11 @@ def render_dashboard(
           <p class='meta'>Session duration (image count): $session_image_count images</p>
           <form method='post' action='/capture-now'><button type='submit'>Take timelapse photo now</button></form>
           <form method='post' action='/delete-all-images'><button type='submit' class='danger'>Delete all timelapse images</button></form>
+        </section>
+
+        <section>
+          <h2>Photo Management</h2>
+          $images_section
         </section>
 
         <section>
@@ -137,6 +156,7 @@ def render_dashboard(
             collected_images=str(status["collected_images"]),
             capture_interval_minutes=str(status["capture_interval_minutes"]),
             session_image_count=str(status["session_image_count"]),
+            images_section=images_section,
             videos_section=videos_section,
         ),
         config_section=Template(config_section).safe_substitute(

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
+import re
+import time
 from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-import time
-import json
 
 
 def _post(url: str):
@@ -23,8 +24,7 @@ def _post_json(url: str, payload: dict):
         return json.loads(response.read().decode("utf-8"))
 
 
-def _extract_video_name_from_dashboard(body: str) -> str:
-    marker = "/delete/"
+def _extract_name_from_dashboard(body: str, marker: str) -> str:
     start = body.index(marker) + len(marker)
     end = body.index("'", start)
     return body[start:end]
@@ -34,6 +34,10 @@ def _list_video_files(server: dict[str, str]):
     return sorted(p.name for p in (server["media_dir"] / "videos").glob("*.mp4"))
 
 
+def _list_image_files(server: dict[str, str]):
+    return sorted(p.name for p in (server["media_dir"] / "images").glob("*.jpg"))
+
+
 def _create_video(server: dict[str, str]) -> str:
     _post(f"{server['base_url']}/capture-now").read()
     _post(f"{server['base_url']}/convert-now").read()
@@ -41,7 +45,14 @@ def _create_video(server: dict[str, str]) -> str:
     with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as response:
         body = response.read().decode("utf-8")
 
-    return _extract_video_name_from_dashboard(body)
+    return _extract_name_from_dashboard(body, "/delete/")
+
+
+def _create_image(server: dict[str, str]) -> str:
+    _post(f"{server['base_url']}/capture-now").read()
+    with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as response:
+        body = response.read().decode("utf-8")
+    return _extract_name_from_dashboard(body, "/delete-image/")
 
 
 def test_dashboard_available_over_http(server):
@@ -53,6 +64,7 @@ def test_dashboard_available_over_http(server):
     assert "Images captured:" in body
     assert "Capture interval: 15 minutes" in body
     assert "Delete all timelapse images" in body
+    assert "Photo Management" in body
 
 
 def test_navigation_bar_has_four_pages_and_switches_sections(server):
@@ -71,29 +83,38 @@ def test_navigation_bar_has_four_pages_and_switches_sections(server):
     assert 'href="/?page=App"' in live
     assert "<h2>Live View</h2>" in live
     assert "<h2>Time lapse Management</h2>" in timelapse
-    assert "Merge videos" in timelapse
+    assert "<h2>Photo Management</h2>" in timelapse
     assert "<h2>Config</h2>" in config
     assert "<h2>Application</h2>" in app
 
 
-def test_video_actions_use_colored_watch_download_buttons(server):
+def test_video_and_photo_actions_use_colored_watch_download_buttons(server):
+    _create_image(server)
+
+    with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as response:
+        image_body = response.read().decode("utf-8")
+
+    assert "href='/images/" in image_body
+    assert "class='btn watch-btn'" in image_body
+    assert "class='btn download-btn'" in image_body
+
     _create_video(server)
 
     with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as response:
-        body = response.read().decode("utf-8")
+        video_body = response.read().decode("utf-8")
 
-    assert "class='btn watch-btn'" in body
-    assert "class='btn download-btn'" in body
+    assert "href='/videos/" in video_body
+    assert "class='btn watch-btn'" in video_body
+    assert "class='btn download-btn'" in video_body
 
 
-def test_capture_now_creates_frame_and_reports_notice(server):
+def test_capture_now_creates_image_with_simplified_name(server):
     with _post(f"{server['base_url']}/capture-now") as response:
         assert response.url.startswith(f"{server['base_url']}/?notice=OK%3A")
 
-    with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as response:
-        body = response.read().decode("utf-8")
-
-    assert "Images captured: 1" in body
+    files = _list_image_files(server)
+    assert len(files) == 1
+    assert re.match(r"^image_\d{6}_\d{6}\.jpg$", files[0])
 
 
 def test_camera_simulator_is_controllable_via_http(server):
@@ -106,7 +127,7 @@ def test_camera_simulator_is_controllable_via_http(server):
     assert reset["fail_next_capture"] is False
 
 
-def test_black_frames_are_discarded_after_capture(server):
+def test_black_images_are_discarded_after_capture(server):
     _post_json(f"{server['base_url']}/__camera", {"black_ratio": 0.95})
     _post(f"{server['base_url']}/capture-now").read()
 
@@ -117,17 +138,39 @@ def test_black_frames_are_discarded_after_capture(server):
 
     with urlopen(f"{server['base_url']}/?page=App", timeout=3) as response:
         app_body = response.read().decode("utf-8")
-    assert "Discarded frame" in app_body
+    assert "Discarded image" in app_body
 
 
-def test_captured_frames_are_rotated_left(server):
+def test_captured_images_are_rotated_left(server):
     _post_json(f"{server['base_url']}/__camera", {"black_ratio": 0.0})
     _post(f"{server['base_url']}/capture-now").read()
 
-    frame = next((server["media_dir"] / "images").glob("frame_*.jpg"))
-    payload = frame.read_bytes()
+    image = next((server["media_dir"] / "images").glob("image_*.jpg"))
+    payload = image.read_bytes()
     assert b"ROTATE_LEFT_90=1" in payload
     assert b"NORMALIZED_FULL_HD=1920x1080" in payload
+
+
+def test_photo_watch_download_and_delete_endpoints(server):
+    file_name = _create_image(server)
+
+    with urlopen(f"{server['base_url']}/images/{file_name}", timeout=3) as watch:
+        watch_body = watch.read()
+    assert watch.status == 200
+    assert watch.headers.get("Content-Type") == "image/jpeg"
+    assert watch_body.startswith(b"\xff\xd8\xff")
+
+    with urlopen(f"{server['base_url']}/download-image/{file_name}", timeout=3) as download:
+        download_body = download.read()
+    assert download.status == 200
+    assert download.headers.get("Content-Type") == "image/jpeg"
+    assert download.headers.get("Content-Disposition") == f"attachment; filename={file_name}"
+    assert download_body.startswith(b"\xff\xd8\xff")
+
+    _post(f"{server['base_url']}/delete-image/{file_name}").read()
+    with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as response:
+        body = response.read().decode("utf-8")
+    assert f"/delete-image/{file_name}" not in body
 
 
 def test_delete_all_timelapse_images_button_endpoint(server):
@@ -142,16 +185,18 @@ def test_delete_all_timelapse_images_button_endpoint(server):
     assert "Images captured: 0" in body
 
 
-def test_convert_now_creates_video_and_clears_frames(server):
+def test_convert_now_creates_video_with_simplified_name_and_clears_images(server):
     _post(f"{server['base_url']}/capture-now").read()
 
     with _post(f"{server['base_url']}/convert-now") as response:
         assert response.url.startswith(f"{server['base_url']}/?notice=OK%3A")
 
+    video_files = _list_video_files(server)
+    assert len(video_files) == 1
+    assert re.match(r"^video_\d{6}_\d{6}_\d{6}_\d{6}\.mp4$", video_files[0])
+
     with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as response:
         body = response.read().decode("utf-8")
-
-    assert "timelapse_" in body
     assert "Images captured: 0" in body
 
 
@@ -204,7 +249,6 @@ def test_video_watch_and_download_endpoints(server):
 
 
 def test_convert_now_with_no_images_returns_error_notice(server):
-    # First convert drains the startup frame generated by the capture loop.
     _post(f"{server['base_url']}/convert-now").read()
 
     with _post(f"{server['base_url']}/convert-now") as response:
@@ -273,8 +317,6 @@ def test_config_page_save_updates_runtime_values_and_persists_file(server):
     assert '"black_detection_percentage": 75.0' in config_text
 
 
-
-
 def test_config_is_loaded_after_server_restart(restartable_server):
     with _post_form(
         f"{restartable_server['base_url']}/config/save",
@@ -297,16 +339,21 @@ def test_config_is_loaded_after_server_restart(restartable_server):
     assert "value='66.5'" in body
     assert "<option value='270' selected>270</option>" in body
 
-def test_missing_video_endpoints_return_404(server):
-    missing_name = "does-not-exist.mp4"
+
+def test_missing_video_and_image_endpoints_return_404(server):
+    missing_video = "does-not-exist.mp4"
+    missing_image = "does-not-exist.jpg"
 
     for path in (
-        f"/videos/{missing_name}",
-        f"/download/{missing_name}",
-        f"/delete/{missing_name}",
+        f"/videos/{missing_video}",
+        f"/download/{missing_video}",
+        f"/delete/{missing_video}",
+        f"/images/{missing_image}",
+        f"/download-image/{missing_image}",
+        f"/delete-image/{missing_image}",
     ):
         url = f"{server['base_url']}{path}"
-        request = Request(url, method="POST") if path.startswith("/delete/") else url
+        request = Request(url, method="POST") if path.startswith("/delete") else url
         try:
             urlopen(request, timeout=3)
             raise AssertionError(f"Expected HTTPError for {path}")

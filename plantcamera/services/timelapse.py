@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import threading
 import traceback
@@ -12,9 +13,10 @@ from typing import Callable
 
 from plantcamera.services.media import MediaService
 
-TIMESTAMP_FORMAT = "%Y%m%d_%H%M%S"
-FRAME_PREFIX = "frame_"
-VIDEO_PREFIX = "timelapse_"
+TIMESTAMP_FORMAT = "%y%m%d_%H%M%S"
+IMAGE_PREFIX = "image_"
+VIDEO_PREFIX = "video_"
+_VALID_IMAGE = re.compile(r"^[A-Za-z0-9._-]+\.jpg$")
 
 
 @dataclass
@@ -200,7 +202,7 @@ class TimelapseService:
             return (error.stderr or b"").decode("utf-8", errors="replace").strip() or "capture failed"
 
     def _capture_frame(self, timestamp: datetime) -> None:
-        frame = self.frames_dir / f"{FRAME_PREFIX}{timestamp.strftime(TIMESTAMP_FORMAT)}.jpg"
+        frame = self.frames_dir / f"{IMAGE_PREFIX}{timestamp.strftime(TIMESTAMP_FORMAT)}.jpg"
         error = self._take_photo(frame)
         discarded = False
         if not error:
@@ -213,7 +215,7 @@ class TimelapseService:
                     frame.unlink(missing_ok=True)
                     discarded = True
                     self._log(
-                        f"Discarded frame {frame.name} because black ratio is {black_ratio:.0%} "
+                        f"Discarded image {frame.name} because black ratio is {black_ratio:.0%} "
                         f"(threshold: {self.black_detection_threshold:.0%})"
                     )
             except Exception as rotate_error:
@@ -227,7 +229,7 @@ class TimelapseService:
         if error:
             self._log(f"Timelapse capture error: {error}")
         elif not discarded:
-            self._log(f"Captured timelapse frame {frame.name}")
+            self._log(f"Captured timelapse image {frame.name}")
 
     def _capture_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -261,7 +263,7 @@ class TimelapseService:
                 self._stop_event.wait(1)
 
     def _collected_images(self) -> list[Path]:
-        return sorted(self.frames_dir.glob(f"{FRAME_PREFIX}*.jpg"))
+        return sorted(self.frames_dir.glob(f"{IMAGE_PREFIX}*.jpg"))
 
     def _session_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -292,14 +294,14 @@ class TimelapseService:
 
     def _encode_session(self) -> tuple[bool, str]:
         with self._encode_lock:
-            frames = self._collected_images()
-            if not frames:
+            images = self._collected_images()
+            if not images:
                 return False, "No collected images available for conversion."
             session_end = datetime.now()
             output_name = f"{VIDEO_PREFIX}{self.session_start.strftime(TIMESTAMP_FORMAT)}_{session_end.strftime(TIMESTAMP_FORMAT)}.mp4"
             output = self.videos_dir / output_name
             try:
-                self.encode_timelapse(self.frames_dir / f"{FRAME_PREFIX}*.jpg", output, self.output_fps, self._resolve_codec())
+                self.encode_timelapse(self.frames_dir / f"{IMAGE_PREFIX}*.jpg", output, self.output_fps, self._resolve_codec())
             except (FileNotFoundError, subprocess.CalledProcessError, RuntimeError) as error:
                 message = str(error)
                 if isinstance(error, subprocess.CalledProcessError):
@@ -315,12 +317,12 @@ class TimelapseService:
                 self._log(message)
                 self._log(traceback.format_exc().strip())
                 return False, message
-            for frame in frames:
-                frame.unlink(missing_ok=True)
+            for image in images:
+                image.unlink(missing_ok=True)
             self.session_start = session_end
             with self._lock:
                 self._capture_status.last_encode_error = None
-            return True, f"Converted {len(frames)} images into {output_name}."
+            return True, f"Converted {len(images)} images into {output_name}."
 
     def trigger_capture_now(self) -> tuple[bool, str]:
         now = datetime.now()
@@ -395,6 +397,25 @@ class TimelapseService:
     def delete_video(self, name: str) -> None:
         self.media.delete_video(name)
         self._log(f"Deleted video {name}")
+
+    def validate_image_name(self, filename: str) -> None:
+        if not _VALID_IMAGE.match(filename) or ".." in filename or "/" in filename or "\\" in filename:
+            raise ValueError("invalid filename")
+
+    def list_images(self) -> list[str]:
+        return sorted((p.name for p in self.frames_dir.glob(f"{IMAGE_PREFIX}*.jpg") if p.is_file()), reverse=True)
+
+    def get_image_path(self, name: str) -> Path:
+        self.validate_image_name(name)
+        path = self.frames_dir / name
+        if not path.exists() or not path.is_file():
+            raise FileNotFoundError(name)
+        return path
+
+    def delete_image(self, name: str) -> None:
+        image = self.get_image_path(name)
+        image.unlink(missing_ok=True)
+        self._log(f"Deleted image {name}")
 
     def delete_all_frames(self) -> int:
         deleted = 0
