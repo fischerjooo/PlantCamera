@@ -194,7 +194,7 @@ def test_convert_now_creates_video_with_simplified_name_and_clears_images(server
 
     video_files = _list_video_files(server)
     assert len(video_files) == 1
-    assert re.match(r"^video_\d{6}_\d{6}_\d{6}_\d{6}\.mp4$", video_files[0])
+    assert re.match(r"^video_\d{6}_\d{6}\.mp4$", video_files[0])
 
     with urlopen(f"{server['base_url']}/?page=TimeLapse", timeout=3) as response:
         body = response.read().decode("utf-8")
@@ -272,7 +272,7 @@ def test_merge_videos_merges_in_chronological_order_and_deletes_sources(server):
 
     after = _list_video_files(server)
     assert len(after) == 1
-    assert after[0].startswith("merged_")
+    assert re.match(r"^video_\d{6}_\d{6}\.mp4$", after[0])
 
     merged_payload = (server["media_dir"] / "videos" / after[0]).read_text(encoding="utf-8")
     chronological = sorted(before)

@@ -298,7 +298,7 @@ class TimelapseService:
             if not images:
                 return False, "No collected images available for conversion."
             session_end = datetime.now()
-            output_name = f"{VIDEO_PREFIX}{self.session_start.strftime(TIMESTAMP_FORMAT)}_{session_end.strftime(TIMESTAMP_FORMAT)}.mp4"
+            output_name = f"{VIDEO_PREFIX}{session_end.strftime(TIMESTAMP_FORMAT)}.mp4"
             output = self.videos_dir / output_name
             try:
                 self.encode_timelapse(self.frames_dir / f"{IMAGE_PREFIX}*.jpg", output, self.output_fps, self._resolve_codec())
@@ -345,10 +345,13 @@ class TimelapseService:
             if len(videos) < 2:
                 return False, "Need at least 2 videos to merge."
 
-            first_name = videos[0].stem
-            last_name = videos[-1].stem
-            output_name = f"merged_{first_name}_{last_name}.mp4"
+            stamp = datetime.now()
+            output_name = f"{VIDEO_PREFIX}{stamp.strftime(TIMESTAMP_FORMAT)}.mp4"
             output = self.videos_dir / output_name
+            while output in videos:
+                stamp = stamp + timedelta(seconds=1)
+                output_name = f"{VIDEO_PREFIX}{stamp.strftime(TIMESTAMP_FORMAT)}.mp4"
+                output = self.videos_dir / output_name
 
             try:
                 self.merge_videos(videos, output)
