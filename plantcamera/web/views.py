@@ -65,8 +65,7 @@ def render_dashboard(
           <h2>Live View</h2>
           <img id='liveView' src='/live.jpg?t=$now' alt='Live camera preview' />
           $live_view_error
-          <p class='meta'>Live view path: DCIM/PlantCamera/live_view.jpg</p>
-          <p class='meta'>Last successful timelapse capture: <span class='ok'>$last_capture</span></p>
+          <p class='meta'>Last timelapse capture: <span class='ok'>$last_capture</span></p>
           $capture_error
           $encode_error
         </section>
@@ -122,7 +121,6 @@ def render_dashboard(
 
             <button type='submit'>Save</button>
           </form>
-          <p class='meta'>Config path: config.json (inside media directory)</p>
         </section>
         """
 
